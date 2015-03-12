@@ -29,54 +29,42 @@
     return num;
  }
 /*
- * run_taskqueue        runs the percpu taskqueue
- * @tasks               array of tasks to be executed
- */
-void run_taskqueue(void *tasks){
-    /* return if the tasks array is NULL */
-    if(tasks == NULL)
-        return;
-    /* execute all the tasks */
-    struct task_struct *t_desc = (struct task_struct *)tasks;
-    while(t_desc != NULL){
-        //TODO execute the task
-        t_desc = t_desc->next;
-    }
-    return;
-}
-/*
- * get_task_dec_count   gets the task structure pointed to by the head of the 
- *      doubly linked list of tasks in the per cpu task queue. the function
- *      moves the head and tail pointers of the doubly linked list accordingly
- *      and decrements the num_tasks counter.
- * @pc_tq               pointer to the per cpu taskqueue
- *
- * returns pointer to the task structure at the head of linked list containing
- *      tasks
- */
-struct task_struct *get_task_dec_count(struct percpu_taskqueue_struct *pc_tq){
-    struct task_struct *t_desc = NULL;
-    return t_desc;
- }
-/*
- * worker_thread        function executed by a worker thread
+ * worker_thread        function executed by each worker thread. 
+ *      each thread runs in the following loop 
+ *      1. acquire the mutex in the per cpu taskqueue 
+ *      2. check the number of tasks pending in this taskqueue
+ *          2.1 sleep on the condition variable if there are no task to 
+ *          execute else, 
+ *          2.2 remove a task from the head of task linked list and 
+ *          reduce the number of pending tasks in the taskqueue 
+ *      3. release the mutex acquired earlier
+ *      4. execute the task by calling the registered function
+ *      5. free up the task structure.
  * @data                data for the thread to work upon, passed as a void 
  *      pointer
  */
 void *worker_thread(void *data){
     struct percpu_taskqueue_struct *pc_tq = 
         (struct percpu_taskqueue_struct *)data;
-    struct task_struct *task = NULL;
+    struct task_struct *t_desc = NULL;
     while(1){
         pthread_mutex_lock(&(pc_tq->lock));
             if(pc_tq->num_tasks == 0){
                 pthread_cond_wait(&(pc_tq->more_task), &(pc_tq->lock));
             }
-            task = get_task_dec_count(pc_tq);
-//        run_taskqueue(data);
+            t_desc = pc_tq->tlist_head;
+            t_desc->next = NULL;
+            if(pc_tq->tlist_head == pc_tq->tlist_tail)
+                pc_tq->tlist_tail = NULL; 
+            pc_tq->tlist_head = pc_tq->tlist_head->next;
+            if(pc_tq->tlist_head != NULL)
+                pc_tq->tlist_head->prev = NULL;
+            pc_tq->num_tasks--; 
         pthread_mutex_unlock(&(pc_tq->lock));
-        //execute_task(task);
-        //free(task);
+        //TODO We cannot return anything here. Seems right though.
+        t_desc->fn(t_desc->data);
+        //TODO Test that it does not release data or pcpu_tq structures
+        free(t_desc);
     }
 }
 /*
@@ -159,6 +147,24 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
  *        -1, in case of any errors
  */
 int queue_task(struct taskqueue_struct *tq_desc, struct task_struct *t_desc){
+    //TODO How to get to per cpu taskqueue
+    //TODO How to make sure if a task is already present in the tq ?
+    struct percpu_taskqueue_struct *pc_tq = NULL;
+    pthread_mutex_lock(&(pc_tq->lock));
+    t_desc->next = NULL;
+    t_desc->prev = NULL;
+    if(pc_tq->tlist_tail != NULL){
+        pc_tq->tlist_tail->next = t_desc;
+        t_desc->prev = pc_tq->tlist_tail;
+        pc_tq->tlist_tail = t_desc;
+    }else{
+        pc_tq->tlist_head = t_desc;
+        pc_tq->tlist_tail = t_desc;
+    }
+    pc_tq->num_tasks++;
+    if(pc_tq->num_tasks == 1)
+        pthread_cond_signal(&(pc_tq->more_task));
+    pthread_mutex_unlock(&(pc_tq->lock));
     return 0;
 }
 /*

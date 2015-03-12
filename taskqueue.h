@@ -31,7 +31,7 @@ struct task_struct{
     /* pointer to the previous task */
     struct task_struct *prev;
     /* pointer to the pending function */
-    void(* fn)(void *);
+    void(*fn)(void *);
     /* pointer to the data to be passed to the pending function */
     void *data;
     /* pointer to the parent percpu_taskqueue */
