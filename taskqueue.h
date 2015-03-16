@@ -19,8 +19,16 @@
 
 /* describes the task queue */
 struct taskqueue_struct{
+    /* number of percpu task queues in this taskqueue */
+    int count_pcpu_tq;
     /* array of task queues, one for each CPU */
     struct percpu_taskqueue_struct *pcpu_tq; 
+    /* algorithm to be used to select a per cpu taskqueue for adding a task */
+    int pcpu_tq_selection_algo;
+    /* mutex to be used for selecting a percpu taskqueue */
+    pthread_mutex_t tq_lock;
+    /* round robin percpu taskqueue selection counter */
+    int next_rr_pctq;
     /* identifier for the task queue */
     char *id;
 };
@@ -62,8 +70,8 @@ struct taskqueue_struct *create_singlethread_taskqueue(char *);
 /* functions used to destroy a taskqueue */
 void destroy_taskqueue(struct taskqueue_struct *);
 /* functions to queue a task */
-int queue_task(struct taskqueue_struct *, struct task_struct *);
-int queue_delayed_task(struct taskqueue_struct *, struct task_struct *, 
+int queue_task(struct taskqueue_struct *, void(*)(void *), void *);
+int queue_delayed_task(struct taskqueue_struct *, void(*)(void *), void *, 
                        unsigned long);
 /* function to cancel a task scheduled for delayed queuing */
 int cancel_delayed_task(struct task_struct *);

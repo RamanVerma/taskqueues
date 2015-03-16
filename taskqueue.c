@@ -18,6 +18,10 @@
 #include"taskqueue.h"
 #include<unistd.h>
 #include<stdlib.h>
+
+#define PCTQ_SEL_ALGO round_robin_pctq
+
+struct percpu_taskqueue_struct *(* select_pctq)(struct taskqueue_struct *);
 /*
  * num_CPU              returns the number of CPUs in the system
  *
@@ -28,6 +32,28 @@
     int num = sysconf(_SC_NPROCESSORS_ONLN);
     return num;
  }
+/*
+ * create_task_struct   creates a task struct from the function and data 
+ *      passed as input.
+ * @fn                  pointer to the function to be wrapped in task struct
+ * @data                pointer to the data to be operated upon
+ *
+ * returns pointer to the task struct, or NULL in case of any error
+ */
+struct task_struct *create_task_struct(void(*fn)(void *), void *data){
+    struct task_struct * t_desc =
+                    (struct task_struct *)malloc(sizeof(struct task_struct));
+    if(t_desc == NULL){
+        //TODO error message handling
+        return NULL;
+    }
+    t_desc->fn = fn;
+    t_desc->data = data;
+    t_desc->next = NULL;
+    t_desc->prev = NULL;
+    t_desc->pcpu_tq = NULL;
+    return t_desc;
+}
 /*
  * worker_thread        function executed by each worker thread. 
  *      each thread runs in the following loop 
@@ -53,7 +79,6 @@ void *worker_thread(void *data){
                 pthread_cond_wait(&(pc_tq->more_task), &(pc_tq->lock));
             }
             t_desc = pc_tq->tlist_head;
-            t_desc->next = NULL;
             if(pc_tq->tlist_head == pc_tq->tlist_tail)
                 pc_tq->tlist_tail = NULL; 
             pc_tq->tlist_head = pc_tq->tlist_head->next;
@@ -66,6 +91,20 @@ void *worker_thread(void *data){
         //TODO Test that it does not release data or pcpu_tq structures
         free(t_desc);
     }
+}
+/*
+ * round_robin_pctq     returns the per cpu taskqueue according to a round 
+ *      robin scheme
+ * @tq_desc             task queue to be investigated
+ *
+ * this function MUST be called in a synchronized manner in case when we have
+ * multiple per cpu taskqueues per taskqueue
+ * returns the per cpu taskqueue structure that contains least number of tasks
+ */
+struct percpu_taskqueue_struct *round_robin_pctq
+                                    (struct taskqueue_struct * tq_desc){
+    tq_desc->next_rr_pctq = (tq_desc->next_rr_pctq++)%(tq_desc->count_pcpu_tq);
+    return tq_desc->pcpu_tq + tq_desc->next_rr_pctq;
 }
 /*
  * create_taskqueue     creates a taskqueue with the name tq_name. It creates
@@ -85,8 +124,13 @@ struct taskqueue_struct *create_taskqueue(char *tq_name){
         //TODO error handling
         return NULL;
     }
-    /* allocate percpu taskqueues */
+    /* assign the percpu taskqueue selection algorithm */
+    tq_desc->pcpu_tq_selection_algo = 0;
+    pthread_mutex_init(&(tq_desc->tq_lock), NULL);
+    tq_desc->next_rr_pctq = 0;
     num_queues = num_CPU();
+    tq_desc->count_pcpu_tq = num_queues;
+    /* allocate percpu taskqueues */
     tq_desc->pcpu_tq = (struct percpu_taskqueue_struct *)malloc(num_queues * 
                                sizeof(struct percpu_taskqueue_struct));
     if(tq_desc->pcpu_tq == NULL){
@@ -140,16 +184,32 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
  *      sleeping on the more_task wait queue in the local CPU's 
  *      percpu_taskqueue decriptor.
  * @tq_desc             pointer to the task queue where task is to be queued
- * @t_desc              pointer to the task struct to be queued
+ * @fn                  pointer to the function to be executed by the task
+ * @data                data to be operated upon by the function
  *
  * returns 0, if task is added to the task queue
  *         1, if task was already present in the task queue
  *        -1, in case of any errors
  */
-int queue_task(struct taskqueue_struct *tq_desc, struct task_struct *t_desc){
-    //TODO How to get to per cpu taskqueue
+int queue_task(struct taskqueue_struct *tq_desc, void(* fn)(void *),        \
+               void *data){
     //TODO How to make sure if a task is already present in the tq ?
+    struct task_struct *t_desc = NULL;
     struct percpu_taskqueue_struct *pc_tq = NULL;
+    switch(tq_desc->pcpu_tq_selection_algo){
+        case 0: 
+            select_pctq = PCTQ_SEL_ALGO;
+            break;
+    }
+    pthread_mutex_lock(&(tq_desc->tq_lock));
+        pc_tq = select_pctq(tq_desc);
+    pthread_mutex_unlock(&(tq_desc->tq_lock));
+    t_desc = create_task_struct(fn, data);
+    if(t_desc == NULL){
+        //TODO log error message
+        return -1;
+    }
+    t_desc->pcpu_tq = pc_tq;
     pthread_mutex_lock(&(pc_tq->lock));
     t_desc->next = NULL;
     t_desc->prev = NULL;
@@ -172,7 +232,8 @@ int queue_task(struct taskqueue_struct *tq_desc, struct task_struct *t_desc){
  *      adds a task in the percpu task queue after a certain delay specified
  *      as the third parameter to the function.
  * @tq_desc             pointer to the task queue where task is to be queued
- * @t_desc              pointer to the task struct to be queued
+ * @fn                  pointer to the function to be executed by the task
+ * @data                data to be operated upon by the function
  * @delay               delay in <> after which the task is to be added to the
  *      percpu task queue descriptor.
  *
@@ -180,9 +241,8 @@ int queue_task(struct taskqueue_struct *tq_desc, struct task_struct *t_desc){
  *         1, if task was already present in the task queue
  *        -1, in case of any errors
  */
-int queue_delayed_task(struct taskqueue_struct * tq_desc, 
-                       struct task_struct * t_desc, 
-                       unsigned long delay){
+int queue_delayed_task(struct taskqueue_struct * tq_desc, void(* fn)(void *),
+                       void *data, unsigned long delay){
     return 0;
 }
 /*
@@ -205,10 +265,4 @@ int cancel_delayed_task(struct task_struct *t_desc){
  * @tq_desc             pointer to the taskqueue descriptor
  */
 void flush_taskqueue(struct taskqueue_struct *tq_desc){
-}
-
-/*
- * main                 main method
- */
-int main(){
 }
