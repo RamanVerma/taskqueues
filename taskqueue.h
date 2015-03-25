@@ -17,6 +17,20 @@
  */
 #include<pthread.h>
 
+/* information for a thread waiting for flush_taskqueue operation */
+struct flush_struct{
+    /* lock to protect the count variable and to be used with cond variable */
+    pthread_mutex_t flush_lock;
+    /* condition variable for the calling thread to sleep on */
+    pthread_cond_t flush_cond;
+    /* counter representing number of tasks to wait upon */
+    int num_wake_prereq;
+    /* array of task sequence number from all the percpu taskqueues */
+    int *task_id;
+    /* pointer to the next flush struct */
+    struct flush_struct *next;
+};
+
 /* describes the task queue */
 struct taskqueue_struct{
     /* number of percpu task queues in this taskqueue */
@@ -25,15 +39,23 @@ struct taskqueue_struct{
     struct percpu_taskqueue_struct *pcpu_tq; 
     /* algorithm to be used to select a per cpu taskqueue for adding a task */
     int pcpu_tq_selection_algo;
-    /* mutex to be used for selecting a percpu taskqueue */
+    /* mutex to be used for selecting a percpu taskqueue while adding a task */
     pthread_mutex_t tq_lock;
     /* round robin percpu taskqueue selection counter */
     int next_rr_pctq;
+    /* lock for adding/removing flush structures from flush linked list */
+    pthread_mutex_t flushlist_lock;
+    /* head for the linked list of flush structures */
+    struct flush_struct *flushlist_head;
+    /* tail for the linked list of flush structures */
+    struct flush_struct *flushlist_tail;
     /* identifier for the task queue */
     char *id;
 };
 /* describes the task in the queue */
 struct task_struct{
+    /* identifier for the task(unique per percpu taskqueue) */
+    int task_id;
     /* pointer to the next task */
     struct task_struct *next;
     /* pointer to the previous task */
@@ -49,6 +71,8 @@ struct task_struct{
 };
 /* describes the percpu_taskqueue */
 struct percpu_taskqueue_struct{
+    /* id of the percpu task queue */
+    int id;
     /* mutex to lock the taskqueue */
     pthread_mutex_t lock;
     /* condition variable for thread waiting for work */
@@ -76,4 +100,4 @@ int queue_delayed_task(struct taskqueue_struct *, void(*)(void *), void *,
 /* function to cancel a task scheduled for delayed queuing */
 int cancel_delayed_task(struct task_struct *);
 /* function to flush a task queue */
-void flush_taskqueue(struct taskqueue_struct *);
+int flush_taskqueue(struct taskqueue_struct *);
