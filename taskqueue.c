@@ -144,13 +144,19 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
         //TODO the flush struct is not found in the queue! error handling
         return;
     }
-    if(f_current == tq_desc->flushlist_head)
+    if(f_current == tq_desc->flushlist_head){
         tq_desc->flushlist_head = tq_desc->flushlist_head->next;
-    else
-        f_prev = f_current->next;
+    }else{
+	if(f_current == tq_desc->flushlist_tail){
+		tq_desc->flushlist_tail = f_prev;
+		f_prev->next = NULL;
+	}else{
+        	f_prev = f_current->next;
+	}
+    }
     free_flush_struct(f_current);
     if(tq_desc->flushlist_head == NULL)
-        tq_desc->flushlist_tail == NULL;
+        tq_desc->flushlist_tail = NULL;
     return;
 }
 /*
