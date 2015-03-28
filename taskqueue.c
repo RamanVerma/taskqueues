@@ -20,16 +20,16 @@
 #include<stdlib.h>
 
 #define DEBUG 0
-#define PCTQ_SEL_ALGO round_robin_pctq
+#define PCTQ_SEL_ALGO __round_robin_pctq
 
 struct percpu_taskqueue_struct *(* select_pctq)(struct taskqueue_struct *);
 /*
- * num_CPU              returns the number of CPUs in the system
+ * __num_CPU            returns the number of CPUs in the system
  *
  * returns the number of CPUs in the system
  * //TODO Is this implementation portable ?
  */
- int num_CPU(){
+int __num_CPU(){
     int num = sysconf(_SC_NPROCESSORS_ONLN);
 #if DEBUG
     return 2;
@@ -92,23 +92,23 @@ struct flush_struct *__create_init_flush_struct
     return f_desc;
 }
 /*
- * free_flush_struct    frees the flush structure passed as an input arg
+ * __free_flush_struct  frees the flush structure passed as an input arg
  * @f_desc              flush structure to be freed
  *
  */
-void free_flush_struct(struct flush_struct *f_desc){
+void __free_flush_struct(struct flush_struct *f_desc){
     free(f_desc->task_id);
     free(f_desc);
 }
 /*
- * add_to_flush_list    adds a flush structure to the flush list in the task
+ * __add_to_flush_list  adds a flush structure to the flush list in the task
  *      queue structure passed as an arg. this function MUST be called after 
  *      locking the flush list for the taskqueue
  * @f_desc              flush structure to be added
  * @tq_desc             taskqueue where the flush struct is to be added
  */
-void add_to_flush_list(struct flush_struct *f_desc,
-                       struct taskqueue_struct *tq_desc){
+void __add_to_flush_list(struct flush_struct *f_desc,
+                         struct taskqueue_struct *tq_desc){
     if(tq_desc->flushlist_tail == NULL){
         tq_desc->flushlist_tail = f_desc;
         tq_desc->flushlist_head = f_desc;
@@ -141,20 +141,21 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
         f_current = f_current->next;
     }
     if(f_current == NULL){
+        //TODO flush list empty, or
         //TODO the flush struct is not found in the queue! error handling
         return;
     }
     if(f_current == tq_desc->flushlist_head){
         tq_desc->flushlist_head = tq_desc->flushlist_head->next;
     }else{
-	if(f_current == tq_desc->flushlist_tail){
-		tq_desc->flushlist_tail = f_prev;
-		f_prev->next = NULL;
-	}else{
-        	f_prev = f_current->next;
-	}
+        if(f_current == tq_desc->flushlist_tail){
+            tq_desc->flushlist_tail = f_prev;
+            f_prev->next = NULL;
+        }else{
+                f_prev = f_current->next;
+        }
     }
-    free_flush_struct(f_current);
+    __free_flush_struct(f_current);
     if(tq_desc->flushlist_head == NULL)
         tq_desc->flushlist_tail = NULL;
     return;
@@ -185,7 +186,7 @@ void __get_flush_dependencies(struct flush_struct *f_desc,
     }
 }
 /*
- * check_flush_queue    checks if a task_id is present in the flush list 
+ * __check_flush_queue    checks if a task_id is present in the flush list 
  *      associated with a task queue. if present, the task_id is set to 0,
  *      num_wake_prereq is decremented by one, and if num_wake_prereq becomes
  *      0, signal the thread waiting on corresponding flush_cond variable
@@ -193,8 +194,8 @@ void __get_flush_dependencies(struct flush_struct *f_desc,
  * @pc_tq_id            id of the percpu task queue to which the task belongs
  * @task_id             id of the task to be searched
  */
-void check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
-                       int task_id){
+void __check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
+                         int task_id){
     struct flush_struct *f_desc_next = tq_desc->flushlist_head;
     struct flush_struct *f_desc = NULL;
     while((f_desc = f_desc_next) != NULL){
@@ -210,7 +211,7 @@ void check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
     }
 }
 /*
- * round_robin_pctq     returns the per cpu taskqueue according to a round 
+ * __round_robin_pctq   returns the per cpu taskqueue according to a round 
  *      robin scheme
  * @tq_desc             task queue to be investigated
  *
@@ -218,7 +219,7 @@ void check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
  * multiple per cpu taskqueues per taskqueue
  * returns the per cpu taskqueue structure that contains least number of tasks
  */
-struct percpu_taskqueue_struct *round_robin_pctq
+struct percpu_taskqueue_struct *__round_robin_pctq
                                     (struct taskqueue_struct * tq_desc){
     tq_desc->next_rr_pctq = (++tq_desc->next_rr_pctq)%(tq_desc->count_pcpu_tq);
     return tq_desc->pcpu_tq + tq_desc->next_rr_pctq;
@@ -244,7 +245,7 @@ struct percpu_taskqueue_struct *__select_pctq
     return pc_tq;
 }
 /*
- * worker_thread        function executed by each worker thread. 
+ * __worker_thread      function executed by each worker thread. 
  *      each thread runs in the following loop 
  *      1. acquire the mutex in the per cpu taskqueue 
  *      2. check the number of tasks pending in this taskqueue
@@ -258,7 +259,7 @@ struct percpu_taskqueue_struct *__select_pctq
  * @data                data for the thread to work upon, passed as a void 
  *      pointer
  */
-void *worker_thread(void *data){
+void *__worker_thread(void *data){
     struct percpu_taskqueue_struct *pc_tq = 
         (struct percpu_taskqueue_struct *)data;
     struct task_struct *t_desc = NULL;
@@ -280,7 +281,7 @@ void *worker_thread(void *data){
         t_desc->fn(t_desc->data);
         //TODO this function should ideally be a separate thread
         task_id = t_desc->task_id;
-        check_flush_queue(pc_tq->tq_desc, pc_tq->id, task_id);
+        __check_flush_queue(pc_tq->tq_desc, pc_tq->id, task_id);
         //TODO Test that it does not release data or pcpu_tq structures
         free(t_desc);
     }
@@ -310,7 +311,7 @@ struct taskqueue_struct *create_taskqueue(char *tq_name){
     tq_desc->flushlist_head = NULL;
     tq_desc->flushlist_tail = NULL;
     tq_desc->next_rr_pctq = 0;
-    num_queues = num_CPU();
+    num_queues = __num_CPU();
     tq_desc->count_pcpu_tq = num_queues;
     /* allocate percpu taskqueues */
     tq_desc->pcpu_tq = (struct percpu_taskqueue_struct *)malloc(num_queues * 
@@ -330,7 +331,7 @@ struct taskqueue_struct *create_taskqueue(char *tq_name){
         pc_tq->tlist_tail = NULL;
         pc_tq->num_tasks = 0;
         pc_tq->tq_desc = tq_desc; 
-        pthread_create(&(pc_tq->worker), NULL, worker_thread, (void *)pc_tq);
+        pthread_create(&(pc_tq->worker), NULL, __worker_thread, (void *)pc_tq);
     }
     return tq_desc;
 }
@@ -455,11 +456,11 @@ int flush_taskqueue(struct taskqueue_struct *tq_desc){
             __get_flush_dependencies(f_desc, tq_desc);
             if(f_desc->num_wake_prereq == 0){
                 pthread_mutex_unlock(&(f_desc->flush_lock));
-                free_flush_struct(f_desc);
+                __free_flush_struct(f_desc);
                 pthread_mutex_unlock(&(tq_desc->flushlist_lock));
                 return 0;
             }else{
-                add_to_flush_list(f_desc, tq_desc);
+                __add_to_flush_list(f_desc, tq_desc);
                 pthread_mutex_unlock(&(tq_desc->flushlist_lock));
                 pthread_cond_wait(&(f_desc->flush_cond), 
                                   &(f_desc->flush_lock));
