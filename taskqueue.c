@@ -32,7 +32,7 @@ struct percpu_taskqueue_struct *(* select_pctq)(struct taskqueue_struct *);
 int __num_CPU(){
     int num = sysconf(_SC_NPROCESSORS_ONLN);
 #if DEBUG
-    return 2;
+    return 1;
 #else
     return num;
 #endif /* DEBUG */
@@ -56,7 +56,6 @@ struct task_struct *__create_task_struct(void(*fn)(void *), void *data){
     t_desc->fn = fn;
     t_desc->data = data;
     t_desc->next = NULL;
-    t_desc->prev = NULL;
     t_desc->pcpu_tq = NULL;
     return t_desc;
 }
@@ -260,25 +259,24 @@ struct percpu_taskqueue_struct *__select_pctq
  *      pointer
  */
 void *__worker_thread(void *data){
-    struct percpu_taskqueue_struct *pc_tq = 
-        (struct percpu_taskqueue_struct *)data;
+    struct percpu_taskqueue_struct *pc_tq =
+                                        (struct percpu_taskqueue_struct *)data;
     struct task_struct *t_desc = NULL;
     int task_id = 0;
     while(1){
         pthread_mutex_lock(&(pc_tq->lock));
-            if(pc_tq->num_tasks == 0){
+            if(pc_tq->num_tasks == 0)
                 pthread_cond_wait(&(pc_tq->more_task), &(pc_tq->lock));
-            }
-            t_desc = pc_tq->tlist_head;
-            if(pc_tq->tlist_head == pc_tq->tlist_tail)
-                pc_tq->tlist_tail = NULL; 
-            pc_tq->tlist_head = pc_tq->tlist_head->next;
-            if(pc_tq->tlist_head != NULL)
-                pc_tq->tlist_head->prev = NULL;
-            pc_tq->num_tasks--; 
         pthread_mutex_unlock(&(pc_tq->lock));
+        t_desc = pc_tq->tlist_head;
         //TODO We cannot return anything here. Seems right though.
         t_desc->fn(t_desc->data);
+        pthread_mutex_lock(&(pc_tq->lock));
+            pc_tq->tlist_head = pc_tq->tlist_head->next;
+            if(pc_tq->tlist_head == NULL)
+                pc_tq->tlist_tail = NULL; 
+            pc_tq->num_tasks--; 
+        pthread_mutex_unlock(&(pc_tq->lock));
         //TODO this function should ideally be a separate thread
         task_id = t_desc->task_id;
         __check_flush_queue(pc_tq->tq_desc, pc_tq->id, task_id);
@@ -386,23 +384,22 @@ int queue_task(struct taskqueue_struct *tq_desc, void(* fn)(void *),        \
     }
     t_desc->pcpu_tq = pc_tq;
     pthread_mutex_lock(&(pc_tq->lock));
-    if(pc_tq->tlist_tail != NULL)
-        t_desc->task_id = (pc_tq->tlist_tail->task_id) + 1;
-    else
-        t_desc->task_id = 1;
-    if(t_desc->task_id < 1)
-        t_desc->task_id = 1;
-    if(pc_tq->tlist_tail != NULL){
-        pc_tq->tlist_tail->next = t_desc;
-        t_desc->prev = pc_tq->tlist_tail;
-        pc_tq->tlist_tail = t_desc;
-    }else{
-        pc_tq->tlist_head = t_desc;
-        pc_tq->tlist_tail = t_desc;
-    }
-    pc_tq->num_tasks++;
-    if(pc_tq->num_tasks == 1)
-        pthread_cond_signal(&(pc_tq->more_task));
+        if(pc_tq->tlist_tail != NULL)
+            t_desc->task_id = (pc_tq->tlist_tail->task_id) + 1;
+        else
+            t_desc->task_id = 1;
+        if(t_desc->task_id < 1)
+            t_desc->task_id = 1;
+        if(pc_tq->tlist_tail != NULL){
+            pc_tq->tlist_tail->next = t_desc;
+            pc_tq->tlist_tail = t_desc;
+        }else{
+            pc_tq->tlist_head = t_desc;
+            pc_tq->tlist_tail = t_desc;
+        }
+        pc_tq->num_tasks++;
+        if(pc_tq->num_tasks == 1)
+            pthread_cond_signal(&(pc_tq->more_task));
     pthread_mutex_unlock(&(pc_tq->lock));
     return 0;
 }

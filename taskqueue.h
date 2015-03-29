@@ -58,8 +58,6 @@ struct task_struct{
     int task_id;
     /* pointer to the next task */
     struct task_struct *next;
-    /* pointer to the previous task */
-    struct task_struct *prev;
     /* pointer to the pending function */
     void(*fn)(void *);
     /* pointer to the data to be passed to the pending function */

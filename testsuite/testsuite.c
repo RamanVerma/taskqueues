@@ -35,7 +35,7 @@ void sleeper(void *data){
 void test1(){
     /* Get the number of CPUs/cores in the system */
     printf("__func__");
-    printf("The number of CPU in this system: %d", num_CPU());
+    printf("The number of CPU in this system: %d", __num_CPU());
     return;
 }
 
@@ -66,7 +66,7 @@ void test3(){
         printf("Could not create taskqueue\n");
         return;
     }
-    int time = 30;
+    int time = 60;
     int x = 0;
     for(x = 0; x < 13; x++)
         queue_task(tq_desc, sleeper, (void *)time);
