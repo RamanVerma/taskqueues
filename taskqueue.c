@@ -20,9 +20,9 @@
 #include<stdlib.h>
 
 #define DEBUG 0
-#define PCTQ_SEL_ALGO __round_robin_pctq
+#define DEF_S_TQ_SEL_ALGO __round_robin_stq
 
-struct percpu_taskqueue_struct *(* select_pctq)(struct taskqueue_struct *);
+struct sub_taskqueue_struct *(* __sel_stq)(struct taskqueue_struct *);
 /*
  * __num_CPU            returns the number of CPUs in the system
  *
@@ -56,7 +56,7 @@ struct task_struct *__create_task_struct(void(*fn)(void *), void *data){
     t_desc->fn = fn;
     t_desc->data = data;
     t_desc->next = NULL;
-    t_desc->pcpu_tq = NULL;
+    t_desc->s_tq = NULL;
     return t_desc;
 }
 /*
@@ -76,13 +76,13 @@ struct flush_struct *__create_init_flush_struct
         //TODO error message for not allocating memory
         return NULL;
     }
-    f_desc->task_id = (int *)malloc(tq_desc->count_pcpu_tq * sizeof(int));
+    f_desc->task_id = (int *)malloc(tq_desc->count_s_tq * sizeof(int));
     if(f_desc->task_id == NULL){
         //TODO error message for not allocating memory
         free(f_desc);
         return NULL;
     }
-    for(index = 0; index < tq_desc->count_pcpu_tq; index++)
+    for(index = 0; index < tq_desc->count_s_tq; index++)
         *(f_desc->task_id + index) = 0;
     pthread_mutex_init(&(f_desc->flush_lock), NULL);
     pthread_cond_init(&(f_desc->flush_cond), NULL);
@@ -161,7 +161,7 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
 }
 /*
  * __get_flush_dependencies 
- *                      find the tail tasks in all the per cpu taskqueues
+ *                      find the tail tasks in all the sub taskqueues
  *      belonging to a taskqueue and add their ids to the flush struct. these 
  *      tasks need to be completed before a thread waiting on a call to 
  *      flush_taskqueue wakes. also, updates the count for total number of 
@@ -173,15 +173,15 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
 void __get_flush_dependencies(struct flush_struct *f_desc, 
                           struct taskqueue_struct *tq_desc){
     int index = 0;
-    struct percpu_taskqueue_struct *pc_tq = NULL;
-    for(index = 0; index < tq_desc->count_pcpu_tq; index++){
-        pc_tq = tq_desc->pcpu_tq + index;
-        pthread_mutex_lock(&(pc_tq->lock));
-            if(pc_tq->tlist_tail != NULL){
-                *(f_desc->task_id + index) = pc_tq->tlist_tail->task_id;
+    struct sub_taskqueue_struct *s_tq = NULL;
+    for(index = 0; index < tq_desc->count_s_tq; index++){
+        s_tq = tq_desc->s_tq + index;
+        pthread_mutex_lock(&(s_tq->lock));
+            if(s_tq->tlist_tail != NULL){
+                *(f_desc->task_id + index) = s_tq->tlist_tail->task_id;
                 (f_desc->num_wake_prereq)++;
             }
-        pthread_mutex_unlock(&(pc_tq->lock));
+        pthread_mutex_unlock(&(s_tq->lock));
     }
 }
 /*
@@ -190,19 +190,19 @@ void __get_flush_dependencies(struct flush_struct *f_desc,
  *      num_wake_prereq is decremented by one, and if num_wake_prereq becomes
  *      0, signal the thread waiting on corresponding flush_cond variable
  * @tq_desc             taskqueue structure where the flush list resides
- * @pc_tq_id            id of the percpu task queue to which the task belongs
+ * @s_tq_id             id of the sub task queue to which the task belongs
  * @task_id             id of the task to be searched
  */
-void __check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
+void __check_flush_queue(struct taskqueue_struct *tq_desc, int s_tq_id,
                          int task_id){
     struct flush_struct *f_desc_next = tq_desc->flushlist_head;
     struct flush_struct *f_desc = NULL;
     while((f_desc = f_desc_next) != NULL){
-        if(*(f_desc->task_id + pc_tq_id) != task_id)
+        if(*(f_desc->task_id + s_tq_id) != task_id)
             break;
         pthread_mutex_lock(&(f_desc->flush_lock));
             f_desc->num_wake_prereq--;
-            *(f_desc->task_id + pc_tq_id) = 0;
+            *(f_desc->task_id + s_tq_id) = 0;
             f_desc_next = f_desc->next;
             if(f_desc->num_wake_prereq == 0)
                 pthread_cond_signal(&(f_desc->flush_cond));
@@ -210,43 +210,46 @@ void __check_flush_queue(struct taskqueue_struct *tq_desc, int pc_tq_id,
     }
 }
 /*
- * __round_robin_pctq   returns the per cpu taskqueue according to a round 
+ * __round_robin_stq   returns the sub taskqueue according to a round 
  *      robin scheme
  * @tq_desc             task queue to be investigated
  *
  * this function MUST be called in a synchronized manner in case when we have
- * multiple per cpu taskqueues per taskqueue
- * returns the per cpu taskqueue structure that contains least number of tasks
+ * multiple sub taskqueues per taskqueue
+ * returns the sub taskqueue structure that contains least number of tasks
  */
-struct percpu_taskqueue_struct *__round_robin_pctq
+struct sub_taskqueue_struct *__round_robin_stq
                                     (struct taskqueue_struct * tq_desc){
-    tq_desc->next_rr_pctq = (++tq_desc->next_rr_pctq)%(tq_desc->count_pcpu_tq);
-    return tq_desc->pcpu_tq + tq_desc->next_rr_pctq;
+    tq_desc->next_rr_s_tq = (++tq_desc->next_rr_s_tq)%(tq_desc->count_s_tq);
+    return tq_desc->s_tq + tq_desc->next_rr_s_tq;
 }
 /*
- * __select_pctq    selects a percpu taskqueue, according to the selection
+ * __select_stq    selects a sub taskqueue, according to the selection
  *      algorithm set for the taskqueue structure
  * @tq_desc         pointer to the taskqueue structure
  *
- * returns a pointer to the selected percpu taskqueue structure
+ * returns a pointer to the selected sub taskqueue structure
  */
-struct percpu_taskqueue_struct *__select_pctq
+struct sub_taskqueue_struct *__select_stq
                                     (struct taskqueue_struct * tq_desc){
-    struct percpu_taskqueue_struct *pc_tq = NULL;
-    switch(tq_desc->pcpu_tq_selection_algo){
+    struct sub_taskqueue_struct *s_tq = NULL;
+    switch(tq_desc->s_tq_selection_algo){
         case 0: 
-            select_pctq = PCTQ_SEL_ALGO;
+            __sel_stq = DEF_S_TQ_SEL_ALGO;
+            break;
+        default: 
+            __sel_stq = DEF_S_TQ_SEL_ALGO;
             break;
     }
     pthread_mutex_lock(&(tq_desc->tq_lock));
-        pc_tq = select_pctq(tq_desc);
+        s_tq = __sel_stq(tq_desc);
     pthread_mutex_unlock(&(tq_desc->tq_lock));
-    return pc_tq;
+    return s_tq;
 }
 /*
  * __worker_thread      function executed by each worker thread. 
  *      each thread runs in the following loop 
- *      1. acquire the mutex in the per cpu taskqueue 
+ *      1. acquire the mutex in the sub taskqueue 
  *      2. check the number of tasks pending in this taskqueue
  *          2.1 sleep on the condition variable if there are no task to 
  *          execute else, 
@@ -259,42 +262,47 @@ struct percpu_taskqueue_struct *__select_pctq
  *      pointer
  */
 void *__worker_thread(void *data){
-    struct percpu_taskqueue_struct *pc_tq =
-                                        (struct percpu_taskqueue_struct *)data;
+    struct sub_taskqueue_struct *s_tq = (struct sub_taskqueue_struct *)data;
     struct task_struct *t_desc = NULL;
     int task_id = 0;
     while(1){
-        pthread_mutex_lock(&(pc_tq->lock));
-            if(pc_tq->num_tasks == 0)
-                pthread_cond_wait(&(pc_tq->more_task), &(pc_tq->lock));
-        pthread_mutex_unlock(&(pc_tq->lock));
-        t_desc = pc_tq->tlist_head;
+        pthread_mutex_lock(&(s_tq->lock));
+            if(s_tq->num_tasks == 0)
+                pthread_cond_wait(&(s_tq->more_task), &(s_tq->lock));
+        pthread_mutex_unlock(&(s_tq->lock));
+        t_desc = s_tq->tlist_head;
         //TODO We cannot return anything here. Seems right though.
         t_desc->fn(t_desc->data);
-        pthread_mutex_lock(&(pc_tq->lock));
-            pc_tq->tlist_head = pc_tq->tlist_head->next;
-            if(pc_tq->tlist_head == NULL)
-                pc_tq->tlist_tail = NULL; 
-            pc_tq->num_tasks--; 
-        pthread_mutex_unlock(&(pc_tq->lock));
+        pthread_mutex_lock(&(s_tq->lock));
+            s_tq->tlist_head = s_tq->tlist_head->next;
+            if(s_tq->tlist_head == NULL)
+                s_tq->tlist_tail = NULL; 
+            s_tq->num_tasks--; 
+        pthread_mutex_unlock(&(s_tq->lock));
         //TODO this function should ideally be a separate thread
         task_id = t_desc->task_id;
-        __check_flush_queue(pc_tq->tq_desc, pc_tq->id, task_id);
-        //TODO Test that it does not release data or pcpu_tq structures
+        __check_flush_queue(s_tq->tq_desc, s_tq->id, task_id);
+        //TODO Test that it does not release data or s_tq structures
         free(t_desc);
     }
 }
 /*
- * create_taskqueue     creates a taskqueue with the name tq_name. It creates
- *      'n' worker threads, one for each of the CPUs in the system. Threads are
- *      named after the taskqueue name passed as a parameter.
+ * create_custom_taskqueue     
+ *                      creates a taskqueue with the name tq_name. It creates
+ *      'n' worker threads. Threads are named after the taskqueue name passed 
+ *      as a parameter. sub taskqueue selection algorithm is specified as the
+ *      third parameter.
  * @tq_name             name for the taskqueue to be created
+ * @n                   number of sub taskqueues to be created
+ * @s_tq_sel_algo       algorithm to select the sub taskqueue for queueing a
+ *      task
  *
  * returns a pointer to the taskqueue structure that describes the task queue
  */
-struct taskqueue_struct *create_taskqueue(char *tq_name){
-    int num_queues, index;
-    struct percpu_taskqueue_struct *pc_tq = NULL;
+struct taskqueue_struct *create_custom_taskqueue(char *tq_name, int n,
+                                                 int s_tq_sel_algo){
+    int index;
+    struct sub_taskqueue_struct *s_tq = NULL;
     /* allocate taskqueue */
     struct taskqueue_struct *tq_desc = 
         (struct taskqueue_struct *)malloc(sizeof(struct taskqueue_struct));
@@ -302,36 +310,46 @@ struct taskqueue_struct *create_taskqueue(char *tq_name){
         //TODO error handling
         return NULL;
     }
-    /* assign the percpu taskqueue selection algorithm */
-    tq_desc->pcpu_tq_selection_algo = 0;
     pthread_mutex_init(&(tq_desc->tq_lock), NULL);
     pthread_mutex_init(&(tq_desc->flushlist_lock), NULL);
     tq_desc->flushlist_head = NULL;
     tq_desc->flushlist_tail = NULL;
-    tq_desc->next_rr_pctq = 0;
-    num_queues = __num_CPU();
-    tq_desc->count_pcpu_tq = num_queues;
-    /* allocate percpu taskqueues */
-    tq_desc->pcpu_tq = (struct percpu_taskqueue_struct *)malloc(num_queues * 
-                               sizeof(struct percpu_taskqueue_struct));
-    if(tq_desc->pcpu_tq == NULL){
+    tq_desc->next_rr_s_tq = 0;
+    tq_desc->s_tq_selection_algo = s_tq_sel_algo;
+    tq_desc->count_s_tq = n;
+    /* allocate sub taskqueues */
+    tq_desc->s_tq = (struct sub_taskqueue_struct *)malloc(n * 
+                               sizeof(struct sub_taskqueue_struct));
+    if(tq_desc->s_tq == NULL){
         //TODO error handling
         free(tq_desc);
         return NULL;
     }
-    /* initialize percpu taskqueues */
-    for(index = 0; index < num_queues; index++){
-        pc_tq = (tq_desc->pcpu_tq + index);
-        pthread_mutex_init(&(pc_tq->lock), NULL);
-        pthread_cond_init(&(pc_tq->more_task), NULL);
-        pc_tq->id = index;
-        pc_tq->tlist_head = NULL;
-        pc_tq->tlist_tail = NULL;
-        pc_tq->num_tasks = 0;
-        pc_tq->tq_desc = tq_desc; 
-        pthread_create(&(pc_tq->worker), NULL, __worker_thread, (void *)pc_tq);
+    /* initialize sub taskqueues */
+    for(index = 0; index < n; index++){
+        s_tq = (tq_desc->s_tq + index);
+        pthread_mutex_init(&(s_tq->lock), NULL);
+        pthread_cond_init(&(s_tq->more_task), NULL);
+        s_tq->id = index;
+        s_tq->tlist_head = NULL;
+        s_tq->tlist_tail = NULL;
+        s_tq->num_tasks = 0;
+        s_tq->tq_desc = tq_desc; 
+        pthread_create(&(s_tq->worker), NULL, __worker_thread, (void *)s_tq);
     }
     return tq_desc;
+}
+/*
+ * create_taskqueue     creates a taskqueue with the name tq_name. It creates
+ *      'n' worker threads, one for each of the CPUs in the system. Threads are
+ *      named after the taskqueue name passed as a parameter. default sub 
+ *      taskqueue selection algorithm is used.
+ * @tq_name             name for the taskqueue to be created
+ *
+ * returns a pointer to the taskqueue structure that describes the task queue
+ */
+struct taskqueue_struct *create_taskqueue(char *tq_name){
+    return create_custom_taskqueue(tq_name, __num_CPU(), 0); 
 }
 /*
  * create_singlethread_taskqueue
@@ -343,14 +361,7 @@ struct taskqueue_struct *create_taskqueue(char *tq_name){
  * returns a pointer to the taskqueue structure that describes the task queue
  */
 struct taskqueue_struct *create_singlethread_taskqueue(char *tq_name){
-    struct taskqueue_struct *tq_desc = 
-        (struct taskqueue_struct *)malloc(sizeof(struct taskqueue_struct));
-    if(tq_desc == NULL){
-        //TODO error handling
-        return NULL;
-    }
-    //TODO initialize the taskqueue_struct and create the threads
-    return tq_desc;
+    return create_custom_taskqueue(tq_name, 1, 0); 
 }
 /*
  * destroy_taskqueue    destroys a taskqueue
@@ -364,7 +375,7 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
  *      in the task queue. If so, it returns immediately. Once the task has 
  *      been added to the task queue, the function wakes any worker thread 
  *      sleeping on the more_task wait queue in the local CPU's 
- *      percpu_taskqueue decriptor.
+ *      sub_taskqueue decriptor.
  * @tq_desc             pointer to the task queue where task is to be queued
  * @fn                  pointer to the function to be executed by the task
  * @data                data to be operated upon by the function
@@ -373,47 +384,47 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
  *         1, if task was already present in the task queue
  *        -1, in case of any errors
  */
-int queue_task(struct taskqueue_struct *tq_desc, void(* fn)(void *),        \
+int queue_task(struct taskqueue_struct *tq_desc, void(* fn)(void *),        
                void *data){
     //TODO How to make sure if a task is already present in the tq ?
-    struct percpu_taskqueue_struct *pc_tq = __select_pctq(tq_desc);
+    struct sub_taskqueue_struct *s_tq = __select_stq(tq_desc);
     struct task_struct *t_desc = __create_task_struct(fn, data);
     if(t_desc == NULL){
         //TODO log error message
         return -1;
     }
-    t_desc->pcpu_tq = pc_tq;
-    pthread_mutex_lock(&(pc_tq->lock));
-        if(pc_tq->tlist_tail != NULL)
-            t_desc->task_id = (pc_tq->tlist_tail->task_id) + 1;
+    t_desc->s_tq = s_tq;
+    pthread_mutex_lock(&(s_tq->lock));
+        if(s_tq->tlist_tail != NULL)
+            t_desc->task_id = (s_tq->tlist_tail->task_id) + 1;
         else
             t_desc->task_id = 1;
         if(t_desc->task_id < 1)
             t_desc->task_id = 1;
-        if(pc_tq->tlist_tail != NULL){
-            pc_tq->tlist_tail->next = t_desc;
-            pc_tq->tlist_tail = t_desc;
+        if(s_tq->tlist_tail != NULL){
+            s_tq->tlist_tail->next = t_desc;
+            s_tq->tlist_tail = t_desc;
         }else{
-            pc_tq->tlist_head = t_desc;
-            pc_tq->tlist_tail = t_desc;
+            s_tq->tlist_head = t_desc;
+            s_tq->tlist_tail = t_desc;
         }
-        pc_tq->num_tasks++;
-        if(pc_tq->num_tasks == 1)
-            pthread_cond_signal(&(pc_tq->more_task));
-    pthread_mutex_unlock(&(pc_tq->lock));
+        s_tq->num_tasks++;
+        if(s_tq->num_tasks == 1)
+            pthread_cond_signal(&(s_tq->more_task));
+    pthread_mutex_unlock(&(s_tq->lock));
     return 0;
 }
 /*
  * queue_delayed_task   this function is similar to queue_task except that it 
- *      adds a task in the percpu task queue after a certain delay specified
+ *      adds a task in the sub task queue after a certain delay specified
  *      as the third parameter to the function.
  * @tq_desc             pointer to the task queue where task is to be queued
  * @fn                  pointer to the function to be executed by the task
  * @data                data to be operated upon by the function
  * @delay               delay in <> after which the task is to be added to the
- *      percpu task queue descriptor.
+ *      sub task queue descriptor.
  *
- * returns 0, if task is scheduled to be added the percpu task queue
+ * returns 0, if task is scheduled to be added the sub task queue
  *         1, if task was already present in the task queue
  *        -1, in case of any errors
  */
@@ -422,13 +433,13 @@ int queue_delayed_task(struct taskqueue_struct * tq_desc, void(* fn)(void *),
     return 0;
 }
 /*
- * cancel_delayed_task  cancels a task that was scheduled to be added to a per
- *      cpu task queue after a delay. If the task has already been added to the
- *      per cpu task queue, the function returns.
+ * cancel_delayed_task  cancels a task that was scheduled to be added to a sub
+ *      taskqueue after a delay. If the task has already been added to the
+ *      sub taskqueue, the function returns.
  * @t_desc              descriptor for the task to be cancelled
  *
  * returns 0, upon successfully cancelling a task
- *         1, if the task has already been added to the percpu task queue
+ *         1, if the task has already been added to the sub task queue
  *         -1, in case of any error
  */
 int cancel_delayed_task(struct task_struct *t_desc){

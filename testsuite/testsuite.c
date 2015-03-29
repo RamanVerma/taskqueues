@@ -44,6 +44,19 @@ void test2(){
     printf("__func__");
     struct taskqueue_struct *tq_desc = NULL;
     char *name = "Queue1";
+    tq_desc = create_custom_taskqueue(name, 4, 0);
+    if(tq_desc == NULL){
+        printf("Could not create taskqueue\n");
+        return;
+    }
+    return;
+}
+
+void test3(){
+    /* Queue tasks */
+    printf("__func__");
+    struct taskqueue_struct *tq_desc = NULL;
+    char *name = "Queue1";
     tq_desc = create_taskqueue(name);
     if(tq_desc == NULL){
         printf("Could not create taskqueue\n");
@@ -56,7 +69,7 @@ void test2(){
     return;
 }
 
-void test3(){
+void test4(){
     /* test flush_taskqueue */
     printf("__func__");
     struct taskqueue_struct *tq_desc = NULL;
@@ -66,9 +79,9 @@ void test3(){
         printf("Could not create taskqueue\n");
         return;
     }
-    int time = 60;
+    int time = 2;
     int x = 0;
-    for(x = 0; x < 13; x++)
+    for(x = 0; x < 15; x++)
         queue_task(tq_desc, sleeper, (void *)time);
     flush_taskqueue(tq_desc);
     return;
@@ -76,7 +89,8 @@ void test3(){
 
 int main(){
 //    test1();
-//    test2();
-    test3();
+    test2();
+//    test3();
+//    test4();
     return 0;
 }
