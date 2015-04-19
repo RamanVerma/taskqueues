@@ -91,6 +91,19 @@ struct flush_struct *__create_init_flush_struct
     return f_desc;
 }
 /*
+ * __free_task_struct   frees the task structure passed as an input arg
+ * @t_desc              task structure to be freed
+ *
+ *      NOTE: it does not free the data, as it may be used by other threads.
+ *      Also, it does not free *next, *fn or *s_tq members because those data
+ *      structures may still be valid.
+ */
+void __free_task_struct(struct task_struct *t_desc){
+    free(t_desc);
+    return;
+}
+
+/*
  * __free_flush_struct  frees the flush structure passed as an input arg
  * @f_desc              flush structure to be freed
  *
@@ -160,8 +173,7 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
     return;
 }
 /*
- * __get_flush_dependencies 
- *                      find the tail tasks in all the sub taskqueues
+ * __get_flush_reqs     find the tail tasks in all the sub taskqueues
  *      belonging to a taskqueue and add their ids to the flush struct. these 
  *      tasks need to be completed before a thread waiting on a call to 
  *      flush_taskqueue wakes. also, updates the count for total number of 
@@ -170,8 +182,8 @@ void __remove_from_flush_list(struct flush_struct *f_desc,
  * @tq_desc             pointer to the taskqueue structure
  *
  */
-void __get_flush_dependencies(struct flush_struct *f_desc, 
-                          struct taskqueue_struct *tq_desc){
+void __get_flush_reqs(struct flush_struct *f_desc, 
+                      struct taskqueue_struct *tq_desc){
     int index = 0;
     struct sub_taskqueue_struct *s_tq = NULL;
     for(index = 0; index < tq_desc->count_s_tq; index++){
@@ -204,6 +216,10 @@ void __check_flush_queue(struct taskqueue_struct *tq_desc, int s_tq_id,
             f_desc->num_wake_prereq--;
             *(f_desc->task_id + s_tq_id) = 0;
             f_desc_next = f_desc->next;
+            //FIXME do we need to unlock f_desc->flush_lock before signalling 
+            // the process waiting on cond var, and continue. Double Check !
+            // could lead to seg fault if f_desc is released by waiting process
+            // and we call unlock after that.
             if(f_desc->num_wake_prereq == 0)
                 pthread_cond_signal(&(f_desc->flush_cond));
         pthread_mutex_unlock(&(f_desc->flush_lock));
@@ -461,7 +477,7 @@ int flush_taskqueue(struct taskqueue_struct *tq_desc){
         if(f_desc == NULL)
             return -1;
         pthread_mutex_lock(&(f_desc->flush_lock));
-            __get_flush_dependencies(f_desc, tq_desc);
+            __get_flush_reqs(f_desc, tq_desc);
             if(f_desc->num_wake_prereq == 0){
                 pthread_mutex_unlock(&(f_desc->flush_lock));
                 __free_flush_struct(f_desc);
