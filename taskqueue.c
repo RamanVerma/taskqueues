@@ -197,6 +197,34 @@ void __get_flush_reqs(struct flush_struct *f_desc,
     }
 }
 /*
+ * __clear_all_flush_reqs clears up all the flush requirements for a certain
+ *      sub taskqueue. this routine is called when the thread associated with 
+ *      the sub taskqueue is getting killed. hence, we avoid deadlock for a 
+ *      process waiting for flush on some task queued in this sub_taskqueue.
+ * @tq_desc             taskqueue structure where the flush list resides
+ * @s_tq_id             id of the sub taskqueue
+ *
+ */
+void __clear_all_flush_reqs(struct taskqueue_struct *tq_desc, int s_tq_id){
+    struct flush_struct *f_desc_next = tq_desc->flushlist_head;
+    struct flush_struct *f_desc = NULL;
+    while((f_desc = f_desc_next) != NULL){
+        f_desc_next = f_desc->next;
+        if(*(f_desc->task_id + s_tq_id) == 0)
+            continue;
+        pthread_mutex_lock(&(f_desc->flush_lock));
+            f_desc->num_wake_prereq--;
+            *(f_desc->task_id + s_tq_id) = 0;
+            //FIXME do we need to unlock f_desc->flush_lock before signalling 
+            // the process waiting on cond var, and continue. Double Check !
+            // could lead to seg fault if f_desc is released by waiting process
+            // and we call unlock after that.
+            if(f_desc->num_wake_prereq == 0)
+                pthread_cond_signal(&(f_desc->flush_cond));
+        pthread_mutex_unlock(&(f_desc->flush_lock));
+    }
+}
+/*
  * __check_flush_queue    checks if a task_id is present in the flush list 
  *      associated with a task queue. if present, the task_id is set to 0,
  *      num_wake_prereq is decremented by one, and if num_wake_prereq becomes
