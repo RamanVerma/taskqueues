@@ -382,8 +382,21 @@ struct taskqueue_struct *create_singlethread_taskqueue(char *tq_name){
 /*
  * destroy_taskqueue    destroys a taskqueue
  * @tq_desc             pointer to the taskqueue_struct to be destroyed
+ *
+ *      get the flushlist_lock
+ *      iterate through the flush structures if any, and free them
+ *
  */
 void destroy_taskqueue(struct taskqueue_struct *tq_desc){
+    struct flush_struct *f_desc = NULL;
+    pthread_mutex_lock(&(tq_desc->flushlist_lock));
+    while(tq_desc->flushlist_head != NULL){
+        f_desc = tq_desc->flushlist_head;
+        tq_desc->flushlist_head = tq_desc->flushlist_head->next;
+        __free_flush_struct(f_desc);
+    }
+    tq_desc->flushlist_tail = NULL;
+    pthread_mutex_unlock(&(tq_desc->flushlist_lock));
 }
 /*
  * queue_task           queues a task in a task queue. Sets the pending field 
