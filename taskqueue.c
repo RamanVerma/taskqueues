@@ -197,34 +197,6 @@ void __get_flush_reqs(struct flush_struct *f_desc,
     }
 }
 /*
- * __clear_all_flush_reqs clears up all the flush requirements for a certain
- *      sub taskqueue. this routine is called when the thread associated with 
- *      the sub taskqueue is getting killed. hence, we avoid deadlock for a 
- *      process waiting for flush on some task queued in this sub_taskqueue.
- * @tq_desc             taskqueue structure where the flush list resides
- * @s_tq_id             id of the sub taskqueue
- *
- */
-void __clear_all_flush_reqs(struct taskqueue_struct *tq_desc, int s_tq_id){
-    struct flush_struct *f_desc_next = tq_desc->flushlist_head;
-    struct flush_struct *f_desc = NULL;
-    while((f_desc = f_desc_next) != NULL){
-        f_desc_next = f_desc->next;
-        if(*(f_desc->task_id + s_tq_id) == 0)
-            continue;
-        pthread_mutex_lock(&(f_desc->flush_lock));
-            f_desc->num_wake_prereq--;
-            *(f_desc->task_id + s_tq_id) = 0;
-            //FIXME do we need to unlock f_desc->flush_lock before signalling 
-            // the process waiting on cond var, and continue. Double Check !
-            // could lead to seg fault if f_desc is released by waiting process
-            // and we call unlock after that.
-            if(f_desc->num_wake_prereq == 0)
-                pthread_cond_signal(&(f_desc->flush_cond));
-        pthread_mutex_unlock(&(f_desc->flush_lock));
-    }
-}
-/*
  * __check_flush_queue    checks if a task_id is present in the flush list 
  *      associated with a task queue. if present, the task_id is set to 0,
  *      num_wake_prereq is decremented by one, and if num_wake_prereq becomes
@@ -254,6 +226,65 @@ void __check_flush_queue(struct taskqueue_struct *tq_desc, int s_tq_id,
     }
 }
 /*
+ * __clear_all_flush_reqs clears up all the flush requirements for a certain
+ *      sub taskqueue. this routine is called when the thread associated with 
+ *      the sub taskqueue is getting killed. hence, we avoid deadlock for a 
+ *      process waiting for flush on some task queued in this sub_taskqueue.
+ * @tq_desc             taskqueue structure where the flush list resides
+ * @s_tq_id             id of the sub taskqueue
+ *
+ */
+void __clear_all_flush_reqs(struct taskqueue_struct *tq_desc, int s_tq_id){
+    struct flush_struct *f_desc_next = tq_desc->flushlist_head;
+    struct flush_struct *f_desc = NULL;
+    while((f_desc = f_desc_next) != NULL){
+        f_desc_next = f_desc->next;
+        if(*(f_desc->task_id + s_tq_id) == 0)
+            continue;
+        pthread_mutex_lock(&(f_desc->flush_lock));
+            f_desc->num_wake_prereq--;
+            *(f_desc->task_id + s_tq_id) = 0;
+            //FIXME do we need to unlock f_desc->flush_lock before signalling 
+            // the process waiting on cond var, and continue. Double Check !
+            // could lead to seg fault if f_desc is released by waiting process
+            // and we call unlock after that.
+            if(f_desc->num_wake_prereq == 0)
+                pthread_cond_signal(&(f_desc->flush_cond));
+        pthread_mutex_unlock(&(f_desc->flush_lock));
+    }
+}
+/*
+ * __migrate_tasks      migrates a single task or all the tasks from a 
+ *      sub_taskqueue to other sub_taskqueues. 
+ *      this function is called when a worker thread asocaited with the 
+ *      sub_taskqueue gets killed/exits. it can also be used to load balance.
+ * @s_tq                pointer to the sub_taskqueue structure where the 
+ *      task(s) currently resides.
+ * @t_id                id of the task to be migrated, NULL if all tasks are to
+ *      be migrated.
+ *
+ * In case when all the worker threads have exited, this function will simply 
+ * free up the task structure(s) from the sub_taskqueue. it will NOT notify any
+ * processes waiting in the flush lists. the function __clear_all_flush_reqs
+ * handles that.
+ */
+void __migrate_tasks(struct sub_taskqueue_struct *s_tq, int t_id) {
+    struct task_struct *t_desc = NULL;
+    void(*fn)(void *);
+    void *data = NULL;
+    int ret;
+    pthread_mutex_lock(&(s_tq->lock));
+        while (tlist_head != NULL) {
+            tlist_head = tlist_head->next;
+            t_desc = tlist_head;
+            fn = t_desc->fn;
+            data = t_desc->data;
+            __free_task_struct(t_desc);
+            while((ret = queue_task(s_tq->tq_desc, fn, data)) == -EAGAIN);
+        }
+    pthread_mutex_unlock(&(s_tq->lock));
+}
+/*
  * __round_robin_stq   returns the sub taskqueue according to a round 
  *      robin scheme
  * @tq_desc             task queue to be investigated
@@ -269,10 +300,15 @@ struct sub_taskqueue_struct *__round_robin_stq
 }
 /*
  * __select_stq    selects a sub taskqueue, according to the selection
- *      algorithm set for the taskqueue structure
+ *      algorithm set for the taskqueue structure. 
+ *      once a sub taskqueue is selected, this function checks if the 
+ *      corresponding worker thread is alive(not killed), signified by the 
+ *      int field num_tasks < 0. Also, it checks the special case where all 
+ *      the worker threads have been killed, signified by count_s_tq < 0
  * @tq_desc         pointer to the taskqueue structure
  *
- * returns a pointer to the selected sub taskqueue structure
+ * returns pointer to the selected sub taskqueue structure on success
+ *         NULL, worker thread of all the sub taskqueues have been killed
  */
 struct sub_taskqueue_struct *__select_stq
                                     (struct taskqueue_struct * tq_desc){
@@ -286,7 +322,16 @@ struct sub_taskqueue_struct *__select_stq
             break;
     }
     pthread_mutex_lock(&(tq_desc->tq_lock));
-        s_tq = __sel_stq(tq_desc);
+        //FIXME need to add a new variable for good sub_taskqueues.
+        //count_s_tq needs to be preserved for destroy. Need to maybe
+        //integrate good_s_tq in flush code.
+        if(tq_desc->count_s_tq < 0) {
+            pthread_mutex_unlock(&(tq_desc->tq_lock));
+            return NULL;
+        }
+        do{
+            s_tq = __sel_stq(tq_desc);
+        } while(s_tq->num_tasks < 0);
     pthread_mutex_unlock(&(tq_desc->tq_lock));
     return s_tq;
 }
@@ -437,21 +482,28 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
  * @fn                  pointer to the function to be executed by the task
  * @data                data to be operated upon by the function
  *
- * returns 0, if task is added to the task queue
- *         1, if task was already present in the task queue
- *        -1, in case of any errors
+ * returns 0, task is added to the task queue
+ *        -ENOMEM, no memory to allocate task structure
+ *        -EAGAIN, worker thread of selected sub taskqueue has been killed
+ *        -1, worker threads for all the sub taskqueues have been killed
  */
 int queue_task(struct taskqueue_struct *tq_desc, void(* fn)(void *),        
                void *data){
-    //TODO How to make sure if a task is already present in the tq ?
-    struct sub_taskqueue_struct *s_tq = __select_stq(tq_desc);
+    struct sub_taskqueue_struct *s_tq = NULL;
     struct task_struct *t_desc = __create_task_struct(fn, data);
     if(t_desc == NULL){
         //TODO log error message
-        return -1;
+        return -ENOMEM;
     }
+    s_tq = __select_stq(tq_desc);
+    if (s_tq == NULL)
+        return -1;
     t_desc->s_tq = s_tq;
     pthread_mutex_lock(&(s_tq->lock));
+        if(s_tq->num_tasks < 0){
+            pthread_mutex_unlock(&(s_tq->lock));
+            return -EAGAIN;
+        }
         if(s_tq->tlist_tail != NULL)
             t_desc->task_id = (s_tq->tlist_tail->task_id) + 1;
         else
