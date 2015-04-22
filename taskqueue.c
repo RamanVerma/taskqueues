@@ -102,7 +102,22 @@ void __free_task_struct(struct task_struct *t_desc){
     free(t_desc);
     return;
 }
-
+/*
+ * __rlse_tasks         releases all the tasks from a given sub taskqueue.
+ * @s_tq    sub_taskqueue whose tasks have to be released
+ */
+void __rlse_tasks(struct sub_taskqueue_struct *s_tq){
+    struct task_struct *t_desc = NULL;
+    pthread_mutex_lock(&(s_tq->lock));
+    while(s_tq->tlist_head != NULL){
+        t_desc = s_tq->tlist_head;
+        s_tq->tlist_head = s_tq->tlist_head->next;
+        __free_task_struct(t_desc);
+        s_tq->num_tasks--;
+    }
+    s_tq->tlist_tail = NULL;
+    pthread_mutex_unlock(&(s_tq->lock));
+}
 /*
  * __free_flush_struct  frees the flush structure passed as an input arg
  * @f_desc              flush structure to be freed
@@ -110,6 +125,8 @@ void __free_task_struct(struct task_struct *t_desc){
  */
 void __free_flush_struct(struct flush_struct *f_desc){
     free(f_desc->task_id);
+    pthread_mutex_destroy(&(f_desc->flush_lock));
+    pthread_cond_destroy(&(f_desc->flush_cond));
     free(f_desc);
 }
 /*
@@ -269,7 +286,9 @@ struct sub_taskqueue_struct *__select_stq
  *      2. check the number of tasks pending in this taskqueue
  *          2.1 sleep on the condition variable if there are no task to 
  *          execute else, 
- *          2.2 remove a task from the head of task linked list and 
+ *          2.2 if num_tasks < 0, break from the loop, destroy mutex,
+ *          destroy cond var and call pthread_exit
+ *          2.3 remove a task from the head of task linked list and 
  *          reduce the number of pending tasks in the taskqueue 
  *      3. release the mutex acquired earlier
  *      4. execute the task by calling the registered function
@@ -286,6 +305,8 @@ void *__worker_thread(void *data){
             if(s_tq->num_tasks == 0)
                 pthread_cond_wait(&(s_tq->more_task), &(s_tq->lock));
         pthread_mutex_unlock(&(s_tq->lock));
+        if(s_tq->num_tasks < 0)
+            break;
         t_desc = s_tq->tlist_head;
         //TODO We cannot return anything here. Seems right though.
         t_desc->fn(t_desc->data);
@@ -301,6 +322,9 @@ void *__worker_thread(void *data){
         //TODO Test that it does not release data or s_tq structures
         free(t_desc);
     }
+    pthread_mutex_destroy(&(s_tq->lock));
+    pthread_cond_destroy(&(s_tq->more_task));
+    pthread_exit(0);
 }
 /*
  * create_custom_taskqueue     
@@ -380,15 +404,23 @@ struct taskqueue_struct *create_singlethread_taskqueue(char *tq_name){
     return create_custom_taskqueue(tq_name, 1, 0); 
 }
 /*
- * destroy_taskqueue    destroys a taskqueue
+ * destroy_taskqueue    destroys a taskqueue. the user application MUST call
+ *      this function after all the queued tasks have finished excution. the
+ *      clean way is to call flush before calling this function. this is just 
+ *      a clean way to release all the memory taken up by this library.
  * @tq_desc             pointer to the taskqueue_struct to be destroyed
  *
  *      get the flushlist_lock
- *      iterate through the flush structures if any, and free them
- *
+ *      iterate through the flush list
+ *          free flush structures if any
+ *      iterate through the sub taskqueues
+ *          free task structures, if any
+ *          mark the num_tasks to -1, and wake up the worker thread
  */
 void destroy_taskqueue(struct taskqueue_struct *tq_desc){
+    int index = 0;
     struct flush_struct *f_desc = NULL;
+    struct sub_taskqueue_struct *s_tq = NULL;
     pthread_mutex_lock(&(tq_desc->flushlist_lock));
     while(tq_desc->flushlist_head != NULL){
         f_desc = tq_desc->flushlist_head;
@@ -397,6 +429,13 @@ void destroy_taskqueue(struct taskqueue_struct *tq_desc){
     }
     tq_desc->flushlist_tail = NULL;
     pthread_mutex_unlock(&(tq_desc->flushlist_lock));
+    for(index = 0; index < tq_desc->count_s_tq; index++){
+        s_tq = tq_desc->s_tq + index;
+        __rlse_tasks(s_tq);
+        pthread_mutex_lock(&(s_tq->lock));
+        s_tq->num_tasks = -1;
+        pthread_mutex_unlock(&(s_tq->lock));
+    }
 }
 /*
  * queue_task           queues a task in a task queue. Sets the pending field 
