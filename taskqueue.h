@@ -35,6 +35,8 @@ struct flush_struct{
 struct taskqueue_struct{
     /* number of sub taskqueues in this taskqueue */
     int count_s_tq;
+    /* number of usable sub taskqueues in this taskqueue */
+    int tq_usable_stq;
     /* array of sub taskqueues, each handled by a separate thread */
     struct sub_taskqueue_struct *s_tq; 
     /* algorithm to be used to select a sub taskqueue for adding a task */
@@ -70,18 +72,20 @@ struct task_struct{
 /* describes the sub_taskqueue */
 struct sub_taskqueue_struct{
     /* id of the sub task queue */
-    int id;
-    /* mutex to lock the taskqueue */
-    pthread_mutex_t lock;
+    int stq_id;
+    /* mutex to synchronize worker and destroy/SIGKILL access to task list */
+    pthread_mutex_t worker_lock;
     /* condition variable for thread waiting for work */
     pthread_cond_t more_task;
     /* thread that will execute tasks queued for this sub taskqueue */
     pthread_t worker;
+    /* mutex to lock the taskqueue */
+    pthread_mutex_t lock;
     /* head of the linked list for tasks in the queue */
     struct task_struct *tlist_head;
     /* tail of the linked list for tasks in the queue */
     struct task_struct *tlist_tail;
-    /* number of tasks queued */
+    /* number of tasks queued, -1 signifies sub taskqueue locked */
     int num_tasks;
     /* pointer to the taskqueue this sub taskqueue struct belongs to */
     struct taskqueue_struct *tq_desc;
