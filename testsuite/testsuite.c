@@ -34,28 +34,35 @@ void sleeper(void *data){
 
 void test1(){
     /* Get the number of CPUs/cores in the system */
-    printf("__func__");
-    printf("The number of CPU in this system: %d", __num_CPU());
+    printf(__func__);
+    printf("\nnum of CPU in this machine:%d\n", __num_CPU());
     return;
 }
 
 void test2(){
     /* Create a taskqueue */
-    printf("__func__");
-    struct taskqueue_struct *tq_desc = NULL;
+    printf(__func__);
+    taskqueue_t *tq_desc = NULL;
+    int i = 0, n = 4;
+    char buf[16] = {'\0'};
     char *name = "Queue1";
-    tq_desc = create_custom_taskqueue(name, 4, 0);
+    tq_desc = create_custom_taskqueue(name, n, 0);
     if(tq_desc == NULL){
-        printf("Could not create taskqueue\n");
+        printf("\nCould not create taskqueue\n");
         return;
+    }
+    printf("\ntaskqueue name:%s\n", tq_desc->tq_id);
+    for(i=0; i < n; i++){
+        pthread_getname_np((tq_desc->tq_stq + i)->s_worker, buf, sizeof(buf));
+        printf("thread name: %s\n", buf); 
     }
     return;
 }
 
 void test3(){
     /* Queue tasks */
-    printf("__func__");
-    struct taskqueue_struct *tq_desc = NULL;
+    printf(__func__);
+    taskqueue_t *tq_desc = NULL;
     char *name = "Queue1";
     tq_desc = create_taskqueue(name);
     if(tq_desc == NULL){
@@ -71,8 +78,8 @@ void test3(){
 
 void test4(){
     /* test flush_taskqueue */
-    printf("__func__");
-    struct taskqueue_struct *tq_desc = NULL;
+    printf(__func__);
+    taskqueue_t *tq_desc = NULL;
     char *name = "Queue1";
     tq_desc = create_taskqueue(name);
     if(tq_desc == NULL){
@@ -87,10 +94,32 @@ void test4(){
     return;
 }
 
+void test5(){
+    /* Create a taskqueue */
+    printf(__func__);
+    taskqueue_t *tq_desc = NULL;
+    int i = 0, n = 2;
+    char buf[16] = {'\0'};
+    char *name = "Queue1";
+    tq_desc = create_custom_taskqueue(name, n, 0);
+    if(tq_desc == NULL){
+        printf("\nCould not create taskqueue\n");
+        return;
+    }
+    printf("\ntaskqueue name:%s\n", tq_desc->tq_id);
+    for(i=0; i < n; i++){
+        pthread_getname_np((tq_desc->tq_stq + i)->s_worker, buf, sizeof(buf));
+        printf("thread name: %s\n", buf); 
+    }
+    destroy_taskqueue(tq_desc);
+    return;
+}
+
 int main(){
-//    test1();
-    test2();
+    test1();
+//    test2();
 //    test3();
 //    test4();
+    test5();
     return 0;
 }

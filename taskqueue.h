@@ -18,81 +18,85 @@
 #include<pthread.h>
 
 /* information for a thread waiting for flush_taskqueue operation */
-struct flush_s{
+struct flush_s {
     /* lock to protect the count variable and to be used with cond variable */
-    pthread_mutex_t flush_lock;
+    pthread_mutex_t f_lock;
     /* condition variable for the calling thread to sleep on */
-    pthread_cond_t flush_cond;
+    pthread_cond_t f_condvar;
     /* counter representing number of tasks to wait upon */
-    int num_wake_prereq;
+    int f_num_wake_prereq;
     /* array of task sequence number from all the sub taskqueues */
-    int *task_id;
+    int *f_id;
     /* pointer to the next flush struct */
-    struct flush_s *next;
+    struct flush_s *f_next;
 };
 typedef struct flush_s flush_t;
 /* describes the task queue */
-struct taskqueue_s{
+struct taskqueue_s {
     /* number of sub taskqueues in this taskqueue */
     int tq_num_stq;
-    /* mutex to protect write access to tq_usable_stq */
-    pthread_mutex_t tq_lock_usable_stq;
+    /* mutex to protect write access to tq_good_stq */
+    pthread_mutex_t tq_count_good_stq_lock;
     /* number of usable sub taskqueues in this taskqueue */
-    int tq_usable_stq;
+    int tq_good_stq;
     /* array of sub taskqueues, each handled by a separate thread */
-    struct sub_taskqueue_s *s_tq; 
+    struct sub_taskqueue_s *tq_stq; 
     /* algorithm to be used to select a sub taskqueue for adding a task */
     int tq_stq_sel_algo;
     /* mutex to be used for selecting a sub taskqueue while adding a task */
-    pthread_mutex_t tq_lock;
+    pthread_mutex_t tq_stq_sel_lock;
     /* round robin sub taskqueue selection counter */
     int tq_next_rr_stq;
     /* lock for adding/removing flush structures from flush linked list */
-    pthread_mutex_t flushlist_lock;
+    pthread_mutex_t tq_flushlist_lock;
     /* head for the linked list of flush structures */
-    flush_t *flushlist_head;
+    flush_t *tq_flushlist_head;
     /* tail for the linked list of flush structures */
-    flush_t *flushlist_tail;
+    flush_t *tq_flushlist_tail;
+    /* mark a taskqueue for destruction */
+    int tq_marked_for_destruction;
+    /* cond var for destroy_tq fn when waiting for flush structs to be freed */
+    pthread_cond_t tq_yield_to_flush_structs_cond;
     /* identifier for the task queue */
-    char *id;
+    char *tq_id;
 };
 typedef struct taskqueue_s taskqueue_t;
 /* describes the task in the queue */
-struct task_s{
+struct task_s {
     /* identifier for the task(unique within each sub taskqueue) */
-    int task_id;
+    int t_tid;
     /* pointer to the next task */
-    struct task_s *next;
+    struct task_s *t_next;
     /* pointer to the pending function */
-    void(*fn)(void *);
+    void(*t_fn)(void *);
     /* pointer to the data to be passed to the pending function */
-    void *data;
+    void *t_data;
     /* pointer to the sub_taskqueue where this struct is queued */
-    struct sub_taskqueue_s *s_tq;
+    struct sub_taskqueue_s *t_stq;
     /* software timer to delay addition of task to a task queue */
     //timer;
 };
 typedef struct task_s task_t;
 /* describes the sub_taskqueue */
-struct sub_taskqueue_s{
+struct sub_taskqueue_s {
     /* id of the sub task queue */
-    int stq_id;
+    int s_id;
     /* mutex to synchronize worker and destroy/SIGKILL access to task list */
-    pthread_mutex_t worker_lock;
+    pthread_mutex_t s_worker_lock;
     /* condition variable for thread waiting for work */
-    pthread_cond_t more_task;
+    pthread_cond_t s_more_task;
     /* thread that will execute tasks queued for this sub taskqueue */
-    pthread_t worker;
+    pthread_t s_worker;
     /* mutex to lock the taskqueue */
-    pthread_mutex_t lock;
+    pthread_mutex_t s_tasklist_lock;
     /* head of the linked list for tasks in the queue */
-    task_t *tlist_head;
+    task_t *s_tasklist_head;
     /* tail of the linked list for tasks in the queue */
-    task_t *tlist_tail;
+    task_t *s_tasklist_tail;
     /* number of tasks queued, -1 signifies sub taskqueue locked */
-    int num_tasks;
+    int s_num_tasks;
     /* pointer to the taskqueue this sub taskqueue struct belongs to */
-    taskqueue_t *tq_desc;
+    taskqueue_t *s_parent_tq;
 };
 typedef struct sub_taskqueue_s sub_taskqueue_t;
 /* funtions used to create a taskqueue */
