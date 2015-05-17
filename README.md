@@ -28,8 +28,8 @@ task, or create a huge number of threads, there will certainly be un necessary
 context switching in the kernel. Rather, we create same number of threads as       
 the number of CPU cores(default) and make them work on queues holding tasks.       
 Hence, the overhead of thread creation, deletion and context switch goes away!! 
-Also, if the tasks are more IO Intensive, we can create taskqueues with a large 
-number of threads and if the tasks are CPU Intensive, we can create the default 
+Also, if the tasks are more IO Intensive, we can create taskqueues with a large
+number of threads and if the tasks are CPU Intensive, we can create the default
 taskqueues.
 
 Please visit the project wiki to checkout the Design and API Documentation.
