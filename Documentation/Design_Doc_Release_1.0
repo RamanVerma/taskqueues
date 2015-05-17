@@ -1,0 +1,83 @@
+++++Design Document for Release 1.0++++
+
+The document contains followign sections.
+SECTION 1           - AIM OF THE DOCUMENT
+SECTION 2           - PROJECT STATEMENT
+SECTION 3           - IMPLEMENTATION DETAILS
+SECTION 3.1         -   DESIGN PHILOSOPHY
+SECTION 3.2         -   TECHNICAL OVERVIEW
+
++++SECTION 1 - AIM OF THE DOCUMENT+++
+
+Declare the project goals for release 1.0 and describe the implementation
+details.
+
++++SECTION 2 - PROJECT STATEMENT+++
+
+A. Provide a simple API to the user space C programs for queueing multiple 
+tasks in queues, one each for a configurable number of threads.
+
+B. Take away the complexity of defining/maintaining structures required to 
+queue tasks and to synchronize among the threads operating on these queues.
+Thereby allowing programmer to focus on business logic while using a fairly
+advanced infrastructure to parallelize/synchronize work.
+
+C. Provide a single API call for each of the following jobs.
+
+    1. define taskqueues with a configurable number of threads.
+
+    2. queue tasks to a queue structure, one belonging to each thread.
+
+    3. synchronization call to wait for all the currently queued tasks to finish
+
+    4. destroy the whole taskqueue structure gracefully.
+
++++SECTION 3 - IMPLEMENTATION DETAILS+++
+
+++SECTION 3.1 - DESIGN PHILOSOPHY++
+
+Application programs should be able to make full use of the computing power
+at their disposal while executing tasks that can be parallelized. Specially the
+compute intensive tasks that can make use of the multi core environments widely
+available. While PThreads provide us with a fundamental API for creating and
+managing multi threaded applications, they do involve fair bit of low level 
+details that a programmer needs to concern herself with. These are details like
+creation of threads, synchronization among them and such.
+
+The programmer has to be an expert on Pthreads and the concepts of parallel
+computing to write a decent sized code. While it is intrinsic to being a 
+good software developer, it is NOT the real challenge that she is trying to
+solve here. It is more to be seen as an enabling infrastructure to solve a
+problem. Hence, I want to take it out as a separate library that can be linked
+to by the application thereby making the code more manageable and faster to 
+write and test.
+
+++SECTION 3.2 - TECHNICAL OVERVIEW+++
+
+Rather than creating/managing individual threads dealing with individual tasks,
+the programmer deals with something called a taskqueue. This is similar in
+functionality to workqueues from the Linux Kernel space.
+
+A taskqueue has a configurable number of sub structures, appropriately named as
+sub_taskqueues. Also, it contains a list of special flush structures defined 
+and used by a calling thread to sleep while all the currently queued tasks
+finish executing.
+
+Each sub_taskqueue primarily contains the following elements.
+...queue structure where user defined tasks(functions) can be queued
+...PThread based thread to operate on these tasks
+...PThread based condition variable for the thread to sleep and be woken when 
+there is a task in the queue
+
+Each flush structure primarily contains the following elements.
+...PThread based condition variable where the calling thread sleeps while 
+waiting for all the queued tasks to finish execution.
+...a queue containing IDs of the last task at each sub_taskqueue at the time 
+when flush API call was made. All these tasks have to finish before the
+calling thread is woken up.
+...a counter for the number of tasks on which calling thread will wait.
+
+Each task structure primarily contains the following elements.
+...pointer to the function that defines the task
+...pointer to the structure that contains data to be operated upon
+...an ID that is unique among all the tasks in the queue
