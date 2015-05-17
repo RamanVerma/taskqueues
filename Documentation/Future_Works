@@ -1,0 +1,30 @@
++++Future Works+++
+
+++Delayed Tasks++
+
+Implement support for adding and cancelling delayed tasks to the taskqueues.
+We can work on the following APIs.
+
+/* functions to queue a delayed task; last parameter being the delay time */
+int queue_delayed_task(taskqueue_t *, void(*)(void *), void *, unsigned long);
+
+/* function to cancel a task scheduled for delayed queuing */
+int cancel_delayed_task(task_t *);
+
+++Algorithms to Select a Sub_Taskqueue++
+
+Implement/experiment with more algorithms to queue a tasks in the sub_taskqueues
+This is an interesting area. If we can somehow identify an idle thread, or use
+Markov chain analysis to predict the service time of each task, we can queue
+tasks more intelligently.
+
+I am still bruised by Markov Chains from grad school :)
+
+++Support muliple compute nodes++
+
+Another interesting extension can be support for multiple compute nodes. As in,
+distribute tasks on various compute nodes in a cluster/datacenter. This is a 
+basic premise for Map Reduce, so some one should already have this piece of 
+infrastructure. So, that will be an interesting study point.
+
+Suggestions are Welcome or so to say, needed !!
