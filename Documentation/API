@@ -1,0 +1,103 @@
++++API Documentation+++
+
+++Taskqueue Creation++
+
+/*
+ * create_taskqueue     creates a taskqueue with the name tq_name. It creates
+ *      'n' worker threads, one for each of the CPUs in the system. Threads are
+ *      named after the taskqueue name passed as a parameter. default sub 
+ *      taskqueue selection algorithm is used.
+ * @tq_name             name for the taskqueue to be created
+ *
+ * returns a pointer to the taskqueue structure that describes the task queue
+ */
+    
+    taskqueue_t *create_taskqueue(char *tq_name);
+
+/*
+ * create_custom_taskqueue     
+ *                      creates a taskqueue with the name tq_name. It creates
+ *      'n' worker threads. Threads are named after the taskqueue name passed 
+ *      as a parameter. sub taskqueue selection algorithm is specified as the
+ *      third parameter.
+ * @tq_name             name for the taskqueue to be created, upto 10 char
+ * @n                   number of sub taskqueues to be created
+ * @stq_sel_algo        algorithm to select the sub taskqueue for queueing a
+ *      task
+ *
+ * returns a pointer to the new taskqueue structure, NULL in case of an error
+ */
+    
+    taskqueue_t *create_custom_taskqueue(char *tq_name, int n, int stq_sel_algo);
+
+/*
+ * create_singlethread_taskqueue
+ *                      creates a task queue just like the create_taskqueue 
+ *      function but single threaded, no matter how many CPUs are present in 
+ *      the system.
+ * @tq_name             name for the taskqueue to be created
+ *
+ * returns a pointer to the taskqueue structure that describes the task queue
+ */
+    
+    taskqueue_t *create_singlethread_taskqueue(char *tq_name);
+
+++Queue a Task to the taskqueue++
+
+/*
+ * queue_task           queues a task in a task queue.
+ * @tq_desc             pointer to the task queue where task is to be queued
+ * @fn                  pointer to the function to be executed by the task
+ * @data                data to be operated upon by the function
+ *
+ *      create a task structure to be queued. select a sub_taskqueue. 
+ *      this sub_taskqueue has to be checked for being valid/usable,
+ *      (s_id >= 0) because there is a chance that the user calls destroy_
+ *      taskqueue, or some one kills this thread soon after the sub_taskqueue 
+ *      gets selected.
+ *      Once the task has been added to the task queue, the function wakes any 
+ *      worker thread sleeping on the more_task wait queue in the local CPU's 
+ *      sub_taskqueue decriptor.
+ *
+ * returns 0, if task is added to the task queue
+ *         1, if task was already present in the task queue
+ *        -1, if there is no more usable sub_taskqueue
+ *        -2, in case of any errors
+ */
+
+    int queue_task(taskqueue_t *tq_desc, void(* fn)(void *), void *data);
+
+++Barrier++
+
+/*
+ * flush_taskqueue      blocks until all the tasks in a task queue descriptor
+ *      are executed. Any task added after the call to flush_taskqueue are not
+ *      considered.
+ * @tq_desc             pointer to the taskqueue descriptor
+ *
+ * returns 0, upon sucess and -1 on failure
+ */
+
+    int flush_taskqueue(taskqueue_t *tq_desc);
+
+++Destroy a taskqueue gracefully++
+
+/*
+ * destroy_taskqueue    destroys a taskqueue. the user application MUST NOT 
+ *      make any further operations on the taskqueue, once this function has 
+ *      been called.
+ *      1. mark all the sub_taskqueues un usable, so that user cannot queue any
+ *      more tasks in them, 
+ *      2. queue a terminal task into the sub taskqueues internally. it will 
+ *      help the worker thread to wake, if it was waiting on more_tasks cond
+ *      var
+ *      2.1 with the sub taskqueue already marked un usable and this being the 
+ *      last task, the worker thread exits.
+ *      3. wait on all the sub_taskqueues threads to join
+ * @tq_desc             pointer to the taskqueue_struct to be destroyed
+ *
+ *      design philosophy: we let all the tasks already enqueued to be 
+ *      completed, before we gracefully exit the worker thread.
+ */
+
+    void destroy_taskqueue(taskqueue_t *tq_desc);
