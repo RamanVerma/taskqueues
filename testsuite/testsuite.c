@@ -3,7 +3,7 @@
  *
  *       Filename:  testsuite.c
  *
- *    Description:  
+ *    Description:  Basic tests to sanity test the taskqueue library 
  *
  *        Version:  1.0
  *        Created:  03/15/2015 05:24:04 PM
@@ -13,10 +13,43 @@
  *         Author:  Verma, Raman
  *   Organization:  
  *
+ *
  * ============================================================================
  */
 #include<stdio.h>
+#include<stdlib.h>
+#include<time.h>
 #include"../taskqueue.c"
+
+#define MAX_ARR_SZ 10
+/* global pointers to arrays */
+int **a, **b, **c;
+int row_a, col_a, row_b, col_b;
+
+/* print an array */
+void printarray(int **arr, int rows, int cols) {
+	int index, index2;
+	printf("++++++++++++++++++++++++++++++++++++\n");
+	printf("Rows: %d, Cols: %d\n", rows, cols);
+	for (index = 0; index < rows; index++) {
+		for (index2 = 0; index2 < cols; index2++) {
+			printf("%d\t", *((*arr + index) + index2));
+		}
+		printf("\n");
+	}
+	printf("++++++++++++++++++++++++++++++++++++\n");
+}
+
+/* multiply a row and a column of two matrices */
+void mul(int ra, int cb, int dim2_a) {
+    int index = 0, elem_a, elem_b, elem_c;
+    for (index = 0; index < dim2_a; index++) {
+        elem_a = *(a[ra] + index);
+	elem_b = *(b[index] + cb);
+	elem_c += elem_a * elem_b;
+    }
+    *(c[ra] + cb) = elem_c;
+}
 
 /* simple task for the task queues */
 void simpleprint(void *data){
@@ -116,10 +149,45 @@ void test5(){
 }
 
 int main(){
+    int index = 0;
+    srand(time(NULL));
+    /* Allocate and Initialize the first array */
+    row_a = rand() % MAX_ARR_SZ;
+    col_a = rand() % MAX_ARR_SZ;
+    if (row_a == 0)
+    	row_a = 5;
+    if (col_a == 0)
+    	col_a = 5;
+    a = (int **)malloc(row_a * sizeof(int *));
+    for (index = 0;index < row_a; index++) {
+    	a[index] = (int *)malloc(col_a * sizeof(int));
+	//memset(a[index], 1, sizeof(a[index]));
+	memset(a[index], 0, col_a * sizeof(int));
+    }
+    printarray(a, row_a, col_a);
+    /* Allocate and Initialize the second array */
+    row_b = col_a;
+    col_b = rand() % MAX_ARR_SZ;
+    if (col_b == 0)
+    	col_b = 5;
+    b = (int **)malloc(row_b * sizeof(int *));
+    for (index = 0;index < row_b; index++) {
+    	b[index] = (int *)malloc(col_b * sizeof(int));
+	memset(b[index], 0, col_b * sizeof(int));
+    }
+    printarray(b, row_b, col_b);
+    /* Allocate and Initialize the resultant array */
+    c = (int **)malloc(row_a * sizeof(int *));
+    for (index = 0;index < row_a; index++) {
+    	c[index] = (int *)malloc(col_b * sizeof(int));
+	memset(c[index], 0, col_b * sizeof(int));
+    }
+    /* Run tests */
     test1();
 //    test2();
 //    test3();
 //    test4();
-    test5();
+//    test5();
+    /*TODO Write test case that does matrix multiplication */
     return 0;
 }
