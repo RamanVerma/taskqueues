@@ -41,6 +41,7 @@ void printarray(int **arr, int rows, int cols) {
 }
 
 /* multiply a row and a column of two matrices */
+/* TODO Test this function */
 void mul(int ra, int cb, int dim2_a) {
     int index = 0, elem_a, elem_b, elem_c;
     for (index = 0; index < dim2_a; index++) {
