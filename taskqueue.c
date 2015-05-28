@@ -33,7 +33,8 @@ sub_taskqueue_t *(* __sel_stq)(taskqueue_t *);
  * returns the number of CPUs in the system
  * //TODO Is this implementation portable ?
  */
-int __num_CPU()
+int
+__num_CPU()
 {
     int num = sysconf(_SC_NPROCESSORS_ONLN);
 #if DEBUG
@@ -42,6 +43,7 @@ int __num_CPU()
     return num;
 #endif /* DEBUG */
  }
+
 /*
  * __create_task_struct creates a task struct from the function and data 
  *      passed as input.
@@ -50,7 +52,8 @@ int __num_CPU()
  *
  * returns pointer to the task struct, or NULL in case of any error
  */
-static task_t *__create_task_struct(void(*fn)(void *), void *data)
+static task_t *
+__create_task_struct(void(*fn)(void *), void *data)
 {
     task_t * t_desc = (task_t *)malloc(sizeof(task_t));
     if(t_desc == NULL) {
@@ -64,6 +67,7 @@ static task_t *__create_task_struct(void(*fn)(void *), void *data)
     t_desc->t_stq = NULL;
     return t_desc;
 }
+
 /*
  * __create_init_flush_struct
  *                      creates and initializes a flush struct
@@ -72,7 +76,8 @@ static task_t *__create_task_struct(void(*fn)(void *), void *data)
  *
  * returns a new flush structure that has been initialized
  */
-static flush_t *__create_init_flush_struct(taskqueue_t *tq_desc)
+static flush_t *
+__create_init_flush_struct(taskqueue_t *tq_desc)
 {
     flush_t *f_desc = NULL;
     int index = 0;
@@ -95,6 +100,7 @@ static flush_t *__create_init_flush_struct(taskqueue_t *tq_desc)
     f_desc->f_next = NULL;
     return f_desc;
 }
+
 /*
  * __free_task_struct   frees the task structure passed as an input arg
  * @t_desc              task structure to be freed
@@ -103,11 +109,13 @@ static flush_t *__create_init_flush_struct(taskqueue_t *tq_desc)
  *      Also, it does not free *t_next, *t_fn or *t_stq members because those t_data
  *      structures may still be valid.
  */
-static void __free_task_struct(task_t *t_desc)
+static void
+__free_task_struct(task_t *t_desc)
 {
     free(t_desc);
     return;
 }
+
 /*
  * __terminal_task      this function is enqueued into a sub_taskqueue by the 
  *      destroy_taskqueue function to facilitate the worker thread to exit 
@@ -123,22 +131,26 @@ static void __free_task_struct(task_t *t_desc)
  *
  *      this function may be used to handle some cleanup operation though.
  */
-static void __terminal_task(void *p)
+static void
+__terminal_task(void *p)
 {
     return;
 }
+
 /*
  * __free_flush_struct  frees the flush structure passed as an input arg
  * @f_desc              flush structure to be freed
  *
  */
-static void __free_flush_struct(flush_t *f_desc)
+static void
+__free_flush_struct(flush_t *f_desc)
 {
     free(f_desc->f_id);
     pthread_mutex_destroy(&(f_desc->f_lock));
     pthread_cond_destroy(&(f_desc->f_condvar));
     free(f_desc);
 }
+
 /*
  * __add_to_flush_list  adds a flush structure to the flush list in the task
  *      queue structure passed as an arg. this function MUST be called after 
@@ -146,7 +158,8 @@ static void __free_flush_struct(flush_t *f_desc)
  * @f_desc              flush structure to be added
  * @tq_desc             taskqueue where the flush struct is to be added
  */
-static void __add_to_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
+static void
+__add_to_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
 {
     if(tq_desc->tq_flushlist_tail == NULL) {
         tq_desc->tq_flushlist_tail = f_desc;
@@ -156,6 +169,7 @@ static void __add_to_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
         tq_desc->tq_flushlist_tail = f_desc;
     }
 }
+
 /*
  * __remove_from_flush_list
  *                      finds a flush structure in the flush list and removes
@@ -169,7 +183,8 @@ static void __add_to_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
  * @f_desc              flush structure to be removed
  * @tq_desc             taskqueue to which the flush list belongs
  */
-static void __remove_from_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
+static void
+__remove_from_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
 {
     flush_t *f_current = tq_desc->tq_flushlist_head;
     flush_t *f_prev = tq_desc->tq_flushlist_head;
@@ -199,6 +214,7 @@ static void __remove_from_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
         tq_desc->tq_flushlist_tail = NULL;
     return;
 }
+
 /*
  * __get_flush_reqs     find the tail tasks in all the sub taskqueues
  *      belonging to a taskqueue and add their ids to the flush struct. these 
@@ -209,7 +225,8 @@ static void __remove_from_flush_list(flush_t *f_desc, taskqueue_t *tq_desc)
  * @tq_desc             pointer to the taskqueue structure
  *
  */
-static void __get_flush_reqs(flush_t *f_desc, taskqueue_t *tq_desc)
+static void
+__get_flush_reqs(flush_t *f_desc, taskqueue_t *tq_desc)
 {
     int index = 0;
     sub_taskqueue_t *stq = NULL;
@@ -223,6 +240,7 @@ static void __get_flush_reqs(flush_t *f_desc, taskqueue_t *tq_desc)
         pthread_mutex_unlock(&(stq->s_tasklist_lock));
     }
 }
+
 /*
  * __check_flush_queue    checks if a tisk id is present in the flush list 
  *      associated with a task queue. if present, the f_tid is set to 0,
@@ -232,7 +250,8 @@ static void __get_flush_reqs(flush_t *f_desc, taskqueue_t *tq_desc)
  * @stq_id             id of the sub task queue to which the task belongs
  * @tid                 id of the task to be searched
  */
-static void __check_flush_queue(taskqueue_t *tq_desc, int stq_id, int tid)
+static void
+__check_flush_queue(taskqueue_t *tq_desc, int stq_id, int tid)
 {
     flush_t *f_desc_next = tq_desc->tq_flushlist_head;
     flush_t *f_desc = NULL;
@@ -252,6 +271,7 @@ static void __check_flush_queue(taskqueue_t *tq_desc, int stq_id, int tid)
         pthread_mutex_unlock(&(f_desc->f_lock));
     }
 }
+
 /*
  * __round_robin_stq   returns the sub taskqueue according to a round 
  *      robin scheme
@@ -261,12 +281,14 @@ static void __check_flush_queue(taskqueue_t *tq_desc, int stq_id, int tid)
  * multiple sub taskqueues per taskqueue
  * returns the sub taskqueue structure that contains least number of tasks
  */
-static sub_taskqueue_t *__round_robin_stq(taskqueue_t * tq_desc)
+static sub_taskqueue_t *
+__round_robin_stq(taskqueue_t * tq_desc)
 {
     tq_desc->tq_next_rr_stq = 
         (++tq_desc->tq_next_rr_stq)%(tq_desc->tq_num_stq);
     return tq_desc->tq_stq + tq_desc->tq_next_rr_stq;
 }
+
 /*
  * __select_stq    selects a sub taskqueue, according to the selection
  *      algorithm set for the taskqueue structure. 
@@ -274,7 +296,8 @@ static sub_taskqueue_t *__round_robin_stq(taskqueue_t * tq_desc)
  *
  * returns a pointer to the selected sub taskqueue structure
  */
-static sub_taskqueue_t *__select_stq(taskqueue_t * tq_desc)
+static sub_taskqueue_t *
+__select_stq(taskqueue_t * tq_desc)
 {
     sub_taskqueue_t *stq = NULL;
     switch(tq_desc->tq_stq_sel_algo) {
@@ -289,6 +312,7 @@ static sub_taskqueue_t *__select_stq(taskqueue_t * tq_desc)
     stq = __sel_stq(tq_desc);
     return stq;
 }
+
 /*
  * __add_task_to_stq    add a task structure to the sub taskqueue.
  *      corresponding lock of the sub_taskqueue MUST be acquired by the 
@@ -296,8 +320,8 @@ static sub_taskqueue_t *__select_stq(taskqueue_t * tq_desc)
  * @stq                 sub_taskqueue where the task has to be added
  * @t_desc              pointer to the task to be added
  */
-static 
-void __add_task_to_stq(sub_taskqueue_t *stq, task_t *t_desc)
+static void
+__add_task_to_stq(sub_taskqueue_t *stq, task_t *t_desc)
 {
     if(stq->s_tasklist_tail != NULL)
         t_desc->t_tid = (stq->s_tasklist_tail->t_tid) + 1;
@@ -317,6 +341,7 @@ void __add_task_to_stq(sub_taskqueue_t *stq, task_t *t_desc)
     if(stq->s_num_tasks == 1)
         pthread_cond_signal(&(stq->s_more_task));
 }
+
 /*
  * __close_stq_add_term_task
  *                      closes a sub_taskqueue for any more tasks to be added.
@@ -329,8 +354,8 @@ void __add_task_to_stq(sub_taskqueue_t *stq, task_t *t_desc)
  *         pthread_join for the worker thread.
  *         2; if sub_taskqueue has already been closed by some one else
  */
-static
-int __close_stq_add_term_task(sub_taskqueue_t *stq)
+static int
+__close_stq_add_term_task(sub_taskqueue_t *stq)
 {
     task_t *t_desc = NULL;
     pthread_mutex_lock(&(stq->s_tasklist_lock));
@@ -356,6 +381,7 @@ int __close_stq_add_term_task(sub_taskqueue_t *stq)
     pthread_mutex_unlock(&(stq->s_tasklist_lock));
     return 1;
 }
+
 /*
  * __stq_graceful_exit  signal handler to gracefully close a sub_taskqueue.
  *      1. mark the sub_taskqueue un usable, so that user cannot queue any
@@ -371,8 +397,8 @@ int __close_stq_add_term_task(sub_taskqueue_t *stq)
  *      design philosophy: we let all the tasks already enqueued to be 
  *      completed, before we gracefully exit the worker thread.
  */
-static
-void __stq_graceful_exit(sub_taskqueue_t *stq)
+static void
+__stq_graceful_exit(sub_taskqueue_t *stq)
 {
     taskqueue_t *tq_desc = stq->s_parent_tq;
     int wait_for_worker = 0;
@@ -399,6 +425,7 @@ void __stq_graceful_exit(sub_taskqueue_t *stq)
     //struct will be signalled only after every other flush structure has been
     //signalled.
 }
+
 /*
  * __worker_thread      function executed by each worker thread. 
  *      each thread runs in the following loop 
@@ -416,8 +443,8 @@ void __stq_graceful_exit(sub_taskqueue_t *stq)
  * @data                data for the thread to work upon, passed as a void 
  *      pointer
  */
-static
-void *__worker_thread(void *data)
+static void *
+__worker_thread(void *data)
 {
     sub_taskqueue_t *stq = (sub_taskqueue_t *)data;
     task_t *t_desc = NULL;
@@ -448,6 +475,7 @@ void *__worker_thread(void *data)
     }
     pthread_exit(0);
 }
+
 /*
  * __init_n_stq     initialize n sub_taskqueues
  * @tq_desc         pointer to the parent taskqueue
@@ -455,8 +483,8 @@ void *__worker_thread(void *data)
  *
  * NOTE: the thread name string is set to max 16 bytes, as per prctl() help
  */
-static
-void __init_n_stq(taskqueue_t *tq_desc, int n)
+static void
+__init_n_stq(taskqueue_t *tq_desc, int n)
 {
     pthread_attr_t attr;
     char name[16] = {'\0'};
@@ -481,6 +509,7 @@ void __init_n_stq(taskqueue_t *tq_desc, int n)
     }
     pthread_attr_destroy(&attr);
 }
+
 /*
  * create_custom_taskqueue     
  *                      creates a taskqueue with the name tq_name. It creates
@@ -494,7 +523,8 @@ void __init_n_stq(taskqueue_t *tq_desc, int n)
  *
  * returns a pointer to the new taskqueue structure, NULL in case of an error
  */
-taskqueue_t *create_custom_taskqueue(char *tq_name, int n, int stq_sel_algo)
+taskqueue_t *
+create_custom_taskqueue(char *tq_name, int n, int stq_sel_algo)
 {
     taskqueue_t *tq_desc = (taskqueue_t *)malloc(sizeof(taskqueue_t));
     if(tq_desc == NULL) {
@@ -528,6 +558,7 @@ taskqueue_t *create_custom_taskqueue(char *tq_name, int n, int stq_sel_algo)
     __init_n_stq(tq_desc, n);
     return tq_desc;
 }
+
 /*
  * create_taskqueue     creates a taskqueue with the name tq_name. It creates
  *      'n' worker threads, one for each of the CPUs in the system. Threads are
@@ -537,10 +568,12 @@ taskqueue_t *create_custom_taskqueue(char *tq_name, int n, int stq_sel_algo)
  *
  * returns a pointer to the taskqueue structure that describes the task queue
  */
-taskqueue_t *create_taskqueue(char *tq_name)
+taskqueue_t *
+create_taskqueue(char *tq_name)
 {
     return create_custom_taskqueue(tq_name, __num_CPU(), 0); 
 }
+
 /*
  * create_singlethread_taskqueue
  *                      creates a task queue just like the create_taskqueue 
@@ -550,10 +583,12 @@ taskqueue_t *create_taskqueue(char *tq_name)
  *
  * returns a pointer to the taskqueue structure that describes the task queue
  */
-taskqueue_t *create_singlethread_taskqueue(char *tq_name)
+taskqueue_t *
+create_singlethread_taskqueue(char *tq_name)
 {
     return create_custom_taskqueue(tq_name, 1, 0); 
 }
+
 /*
  * destroy_taskqueue    destroys a taskqueue. the user application MUST NOT 
  *      make any further operations on the taskqueue, once this function has 
@@ -571,7 +606,8 @@ taskqueue_t *create_singlethread_taskqueue(char *tq_name)
  *      design philosophy: we let all the tasks already enqueued to be 
  *      completed, before we gracefully exit the worker thread.
  */
-void destroy_taskqueue(taskqueue_t *tq_desc)
+void
+destroy_taskqueue(taskqueue_t *tq_desc)
 {
     int index = 0;
     sub_taskqueue_t *stq = NULL;
@@ -618,6 +654,7 @@ void destroy_taskqueue(taskqueue_t *tq_desc)
     free(tq_desc->tq_id);
     free(tq_desc);
 }
+
 /*
  * queue_task           queues a task in a task queue.
  * @tq_desc             pointer to the task queue where task is to be queued
@@ -638,7 +675,8 @@ void destroy_taskqueue(taskqueue_t *tq_desc)
  *        -1, if there is no more usable sub_taskqueue
  *        -2, in case of any errors
  */
-int queue_task(taskqueue_t *tq_desc, void(* fn)(void *), void *data)
+int
+queue_task(taskqueue_t *tq_desc, void(* fn)(void *), void *data)
 {
     task_t *t_desc = __create_task_struct(fn, data);
     if(t_desc == NULL) {
@@ -660,6 +698,7 @@ int queue_task(taskqueue_t *tq_desc, void(* fn)(void *), void *data)
     pthread_mutex_unlock(&(stq->s_tasklist_lock));
     return 0;
 }
+
 /*
  * queue_delayed_task   this function is similar to queue_task except that it 
  *      adds a task in the sub task queue after a certain delay specified
@@ -674,11 +713,13 @@ int queue_task(taskqueue_t *tq_desc, void(* fn)(void *), void *data)
  *         1, if task was already present in the task queue
  *        -1, in case of any errors
  */
-int queue_delayed_task(taskqueue_t * tq_desc, void(* fn)(void *),
+int
+queue_delayed_task(taskqueue_t * tq_desc, void(* fn)(void *),
                        void *data, unsigned long delay)
 {
     return 0;
 }
+
 /*
  * cancel_delayed_task  cancels a task that was scheduled to be added to a sub
  *      taskqueue after a delay. If the task has already been added to the
@@ -689,10 +730,12 @@ int queue_delayed_task(taskqueue_t * tq_desc, void(* fn)(void *),
  *         1, if the task has already been added to the sub task queue
  *         -1, in case of any error
  */
-int cancel_delayed_task(task_t *t_desc)
+int
+cancel_delayed_task(task_t *t_desc)
 {
     return 0;
 }
+
 /*
  * flush_taskqueue      blocks until all the tasks in a task queue descriptor
  *      are executed. Any task added after the call to flush_taskqueue are not
@@ -701,7 +744,8 @@ int cancel_delayed_task(task_t *t_desc)
  *
  * returns 0, upon sucess and -1 on failure
  */
-int flush_taskqueue(taskqueue_t *tq_desc)
+int
+flush_taskqueue(taskqueue_t *tq_desc)
 {
     pthread_mutex_lock(&(tq_desc->tq_flushlist_lock));
     int index = 0;
@@ -731,6 +775,7 @@ int flush_taskqueue(taskqueue_t *tq_desc)
     pthread_mutex_unlock(&(tq_desc->tq_flushlist_lock));
     return 0;
 }
+
 /*
  * signal handling 
  * FIXME pass the correct sub taskqueue to the handler
