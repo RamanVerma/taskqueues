@@ -15,8 +15,10 @@
  *
  * ============================================================================
  */
+#define _GNU_SOURCE
 #include"taskqueue.h"
 #include<unistd.h>
+#include<stdio.h>
 #include<stdlib.h>
 #include<signal.h>
 #include<string.h>
@@ -748,7 +750,6 @@ int
 flush_taskqueue(taskqueue_t *tq_desc)
 {
     pthread_mutex_lock(&(tq_desc->tq_flushlist_lock));
-    int index = 0;
     flush_t *f_desc = NULL;
     f_desc = __create_init_flush_struct(tq_desc);
     if(f_desc == NULL) {

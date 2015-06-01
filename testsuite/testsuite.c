@@ -18,8 +18,9 @@
  */
 #include<stdio.h>
 #include<stdlib.h>
+#include<string.h>
 #include<time.h>
-#include"../taskqueue.c"
+#include"taskqueue.h"
 
 #define MAX_ARR_SZ 10
 /* global pointers to arrays */
