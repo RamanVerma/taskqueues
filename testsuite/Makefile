@@ -4,7 +4,7 @@ CFLAGS		:= -g
 INCDIR		:= -I $(SRCDIR)
 LIBS		:= -L $(SRCDIR) -lpthread -ltaskqueue
 TSTFILES	:= testsuite.c
-TSTEXEC		:= tests
+TSTEXEC		:= testdriver
 
 all: build
 

@@ -2,3 +2,4 @@ a.out
 *.txt
 *.a
 *.o
+*_t

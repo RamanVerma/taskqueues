@@ -287,7 +287,7 @@ static sub_taskqueue_t *
 __round_robin_stq(taskqueue_t * tq_desc)
 {
     tq_desc->tq_next_rr_stq = 
-        (++tq_desc->tq_next_rr_stq)%(tq_desc->tq_num_stq);
+    	(++tq_desc->tq_next_rr_stq)%(tq_desc->tq_num_stq);
     return tq_desc->tq_stq + tq_desc->tq_next_rr_stq;
 }
 
